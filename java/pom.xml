@@ -1,0 +1,71 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.sagebionetworks</groupId>
+  <artifactId>SynapseChallengeTemplates</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>SynapseChallengeTemplates</name>
+  <url>http://maven.apache.org</url>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+	<repositories>
+		<repository>
+			<id>mvnrepository</id>
+			<url>http://repo1.maven.org/maven2</url>
+		</repository>
+		<repository>
+			<id>sagebionetworks-releases-local</id>
+			<name>sagebionetworks-releases-local</name>
+			<url>http://sagebionetworks.artifactoryonline.com/sagebionetworks/libs-releases-local
+			</url>
+		</repository>
+		<repository>
+			<id>sagebionetworks-ext</id>
+			<name>sagebionetworks-releases-ext</name>
+			<url>http://sagebionetworks.artifactoryonline.com/sagebionetworks/ext-releases-local
+			</url>
+		</repository>
+		<repository>
+			<id>maven-central-rep-1</id>
+			<url>http://repo1.maven.org/maven2/</url>
+		</repository>
+		<repository>
+			<id>sun-maven-repository</id>
+			<url>http://download.java.net/maven/2/</url>
+		</repository>
+		<repository>
+			<id>apache-repo-releases</id>
+			<url>https://repository.apache.org/content/repositories/releases/
+			</url>
+		</repository>
+	</repositories>
+  
+	
+	<dependencies>
+		<dependency>
+			<groupId>org.sagebionetworks</groupId>
+			<artifactId>synapseJavaClient</artifactId>
+			<version>40.0</version>
+		</dependency>
+		
+		
+      <dependency>
+      	<groupId>junit</groupId>
+      	<artifactId>junit</artifactId>
+      	<scope>test</scope>
+       <version>4.11</version>
+    </dependency>
+    
+       <dependency>
+     	 	<groupId>com.googlecode.json-simple</groupId>
+     	 	<artifactId>json-simple</artifactId>
+      		<version>1.1</version>
+   	 	</dependency>
+  </dependencies>
+</project>
