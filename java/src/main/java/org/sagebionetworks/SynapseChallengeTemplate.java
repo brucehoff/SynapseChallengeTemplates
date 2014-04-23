@@ -51,20 +51,15 @@ import org.sagebionetworks.utils.MD5ChecksumHelper;
 public class SynapseChallengeTemplate {
 	private static final boolean USE_STAGING = true;
 	
-	private static final boolean TEAR_DOWN_BEFORE = false;
-	private static final String EXISTING_PROJECT_ID = "syn2429057";
-	private static final String EXISTING_PARTICIPANT_PROJECT_ID = "syn2429059";
-	private static final String EXISTING_EVALUATION_ID = "2429058";
-
-	private static final boolean TEAR_DOWN_AFTER = false;
+	private static final boolean TEAR_DOWN_AFTER = true;
 	
     // the page size can be bigger, we do this just to demonstrate pagination
-    private static int PAGE_SIZE = 200; //20
+    private static int PAGE_SIZE = 20;
     
     // the batch size can be bigger, we do this just to demonstrate batching
-    private static int BATCH_SIZE = 500; // 20
+    private static int BATCH_SIZE = 20;
     
-    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 1500; //2*PAGE_SIZE+1; // make sure there are multiple batches to handle
+    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2*PAGE_SIZE+1; // make sure there are multiple batches to handle
 
 	private static final Random random = new Random();
 	
@@ -85,10 +80,6 @@ public class SynapseChallengeTemplate {
     public static void main( String[] args ) throws Exception {
    		SynapseChallengeTemplate sct = new SynapseChallengeTemplate();
    	    try {
-   	    	if (TEAR_DOWN_BEFORE) {
-   	    		sct.retrieveExisting();
-   	    		sct.tearDown();
-   	    	}
     		// Set Up
     		sct.setUp();
     	
@@ -309,8 +300,7 @@ public class SynapseChallengeTemplate {
     /**
      * This demonstrates retrieving submission scoring results using the Evaluation query API.
      * In practice the query would be put in an "API SuperTable" widget in a wiki page in the
-     * Synapse Portal.  A 
-     * 
+     * Synapse Portal.  A sample widget is:
      * ${supertable?path=%2Fevaluation%2Fsubmission%2Fquery%3Fquery%3Dselect%2B%2A%2Bfrom%2Bevaluation%5F2429058&paging=true&queryTableResults=true&showIfLoggedInOnly=false&pageSize=25&showRowNumber=false&jsonResultsKeyName=rows&columnConfig0=none%2CTeam Name%2CsubmitterAlias%3B%2CNONE&columnConfig1=none%2CSubmitter%2CuserId%3B%2CNONE&columnConfig2=none%2CSubmission Name%2Cname%3B%2CNONE&columnConfig3=none%2CSubmission ID%2CobjectId%3B%2CNONE&columnConfig4=epochdate%2CSubmitted On%2CcreatedOn%3B%2CNONE&columnConfig5=none%2CaString%2CaString%3B%2CNONE&columnConfig6=none%2Crank%2Crank%3B%2CNONE&columnConfig7=none%2Ccorrelation%2Ccorrelation%3B%2CNONE}
      * 
      * @throws SynapseException
@@ -336,13 +326,6 @@ public class SynapseChallengeTemplate {
     	}
     	//we reach this line only if we time out
     	System.out.println("Error:  Annotations have not appeared in query results.");
-    }
-    
-    public void retrieveExisting() throws SynapseException {
-    	// could retrieve by name so we don't need to know the ID
-    	participantProject = (Project)synapseParticipant.getEntityById(EXISTING_PARTICIPANT_PROJECT_ID);
-    	evaluation = synapseAdmin.getEvaluation(EXISTING_EVALUATION_ID);
-    	project = (Project)synapseAdmin.getEntityById(EXISTING_PROJECT_ID);
     }
     
     public void tearDown() throws SynapseException {
