@@ -211,12 +211,29 @@ public class SynapseChallengeTemplate {
 		if (projectId!=null) {
 			synapseParticipant.deleteEntityById(projectId.toString());
 		}
+		Evaluation evaluation = null;
 		try {
-			Evaluation evaluation = synapseAdmin.findEvaluation(CHALLENGE_EVALUATION_NAME);
-    		synapseAdmin.deleteEvaluation(evaluation.getId());
+			evaluation = synapseAdmin.findEvaluation(CHALLENGE_EVALUATION_NAME);
     	} catch (SynapseNotFoundException e) {
     		// evaluation does not exist
     	}
+		if (evaluation!=null) {
+			// delete all the Submissions, then the parent Evaluation
+	    	long total = Integer.MAX_VALUE;
+	    	// keep looping 'til there's nothing left
+	       	while (total>0L) {
+	       		PaginatedResults<Submission> submissionPGs = 
+	       			synapseAdmin.getAllSubmissions(evaluation.getId(), 0L, PAGE_SIZE);
+	        	total = (int)submissionPGs.getTotalNumberOfResults();
+	        	List<Submission> page = submissionPGs.getResults();
+	        	for (int i=0; i<page.size(); i++) {
+	        		Submission submission = page.get(i);
+	        		String submissionId = submission.getId();
+	        		synapseAdmin.deleteSubmission(submissionId);
+	        	}
+	       	}
+	       	synapseAdmin.deleteEvaluation(evaluation.getId());
+		}
 		projectId = findProjectId(synapseAdmin, CHALLENGE_PROJECT_NAME);
     	if (projectId!=null) {
     		synapseAdmin.deleteEntityById(projectId.toString());
