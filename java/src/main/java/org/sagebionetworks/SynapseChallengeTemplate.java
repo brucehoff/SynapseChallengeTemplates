@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
@@ -41,6 +42,7 @@ import org.sagebionetworks.repo.model.annotation.Annotations;
 import org.sagebionetworks.repo.model.annotation.DoubleAnnotation;
 import org.sagebionetworks.repo.model.annotation.LongAnnotation;
 import org.sagebionetworks.repo.model.annotation.StringAnnotation;
+import org.sagebionetworks.repo.model.message.MessageToUser;
 import org.sagebionetworks.repo.model.query.QueryTableResults;
 import org.sagebionetworks.repo.model.query.Row;
 import org.sagebionetworks.utils.MD5ChecksumHelper;
@@ -260,7 +262,16 @@ public class SynapseChallengeTemplate {
         		Submission sub = bundle.getSubmission();
        			File temp = downloadSubmissionFile(sub);
        			// Examine file to decide whether the submission is valid
-       			SubmissionStatusEnum newStatus = SubmissionStatusEnum.VALIDATED; // OR SubmissionStatusEnum.INVALID
+       			boolean fileIsOK = true;
+       			
+       			SubmissionStatusEnum newStatus = null;
+       			if (fileIsOK) {
+       				newStatus = SubmissionStatusEnum.VALIDATED;
+       			} else {
+       				newStatus = SubmissionStatusEnum.INVALID;
+       				// send the user an email message to let them know
+       				sendMessage(sub.getUserId(), SUB_ACK_SUBJECT, SUB_ACK_INVALID);
+       			}
            		SubmissionStatus status = bundle.getSubmissionStatus();
            		status.setStatus(newStatus);
            	    statusesToUpdate.add(status);
@@ -268,6 +279,16 @@ public class SynapseChallengeTemplate {
        	}
        	// we can update all the statuses in a batch
        	updateSubmissionStatusBatch(statusesToUpdate);
+    }
+    
+    private static final String SUB_ACK_SUBJECT = "Submission Acknowledgment";
+    private static final String SUB_ACK_INVALID = "Your submission is invalid. Please try again.";
+       
+    private void sendMessage(String userId, String subject, String body) throws SynapseException {
+    	MessageToUser messageMetadata = new MessageToUser();
+    	messageMetadata.setRecipients(Collections.singleton(userId));
+    	messageMetadata.setSubject(subject);
+    	synapseAdmin.sendStringMessage(messageMetadata, body);
     }
     
     /**
