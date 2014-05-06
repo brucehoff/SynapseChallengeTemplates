@@ -3,6 +3,7 @@ package org.sagebionetworks;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -13,14 +14,15 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.http.entity.ContentType;
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.sagebionetworks.client.SynapseClient;
 import org.sagebionetworks.client.SynapseClientImpl;
 import org.sagebionetworks.client.SynapseProfileProxy;
+import org.sagebionetworks.client.exceptions.SynapseConflictingUpdateException;
 import org.sagebionetworks.client.exceptions.SynapseException;
+import org.sagebionetworks.client.exceptions.SynapseNotFoundException;
 import org.sagebionetworks.evaluation.model.BatchUploadResponse;
 import org.sagebionetworks.evaluation.model.Evaluation;
 import org.sagebionetworks.evaluation.model.EvaluationStatus;
@@ -46,21 +48,39 @@ import org.sagebionetworks.utils.MD5ChecksumHelper;
 
 /**
  * Executable template for Challenge scoring application
- *
+ * 
+ * To use this class, add a properties file 'global.properties' on your class path with the following properties:
+ * 
+ * The user name and API key for the challenge administrator:
+ * ADMIN_USERNAME
+ * ADMIN_PASSWORD
+ * 
+ * The user name and API key for the challenge participant
+ * PARTICIPANT_USERNAME
+ * PARTICIPANT_PASSWORD
+ * 
  */
 public class SynapseChallengeTemplate {
-	private static final boolean USE_STAGING = true;
-	
+	// if true, then tear down at the end, leaving the system in its initial state
+	// if false, leave the created objects in place for subsequent use
 	private static final boolean TEAR_DOWN_AFTER = true;
 	
+	// if 'TEAR_DOWN_AFTER' is set to false, then use unique names for projects and the evaluation:
+    private static final String CHALLENGE_PROJECT_NAME = "SynapseChallengeTemplate java edition";
+    private static final String CHALLENGE_EVALUATION_NAME = "SynapseChallengeTemplate java edition";
+    private static final String PARTICIPANT_PROJECT_NAME = "SynapseChallengeTemplate Participant java edition";
+    
     // the page size can be bigger, we do this just to demonstrate pagination
     private static int PAGE_SIZE = 20;
     
     // the batch size can be bigger, we do this just to demonstrate batching
     private static int BATCH_SIZE = 20;
     
-    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2*PAGE_SIZE+1; // make sure there are multiple batches to handle
+    // make sure there are multiple batches to handle
+    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2*PAGE_SIZE+1; 
 
+    private static final long WAIT_FOR_QUERY_ANNOTATIONS_MILLIS = 60000L; // a minute
+    
 	private static final Random random = new Random();
 	
 	private static final String FILE_CONTENT = "some file content";
@@ -75,8 +95,6 @@ public class SynapseChallengeTemplate {
     private Project participantProject;
     private FileEntity file;
     
-
-	
     public static void main( String[] args ) throws Exception {
    		SynapseChallengeTemplate sct = new SynapseChallengeTemplate();
    	    try {
@@ -85,10 +103,17 @@ public class SynapseChallengeTemplate {
     	
     		// Create Submission
     		sct.submit();
+    		
+    		// you may wish to do a quick validation, informing the user if the submission is invalid
+    		// this could be run frequently, say every minute, to give prompt feedback
+    		sct.validate();
     	
     		// Scoring application
     		// This is the part of the code that can be used
     		// as a template for actual scoring applications
+    		//
+    		// it may be run less frequently than the 'validation' step, e.g. hourly, daily, or perhaps
+    		// at the end of a multi-day 'scoring round'
     		sct.score();
     	
     		// Query for leader board
@@ -104,26 +129,33 @@ public class SynapseChallengeTemplate {
     	String adminUserName = getProperty("ADMIN_USERNAME");
     	String adminPassword = getProperty("ADMIN_PASSWORD");
     	synapseAdmin.login(adminUserName, adminPassword);
+    	
     	synapseParticipant = createSynapseClient();
     	String participantUserName = getProperty("PARTICIPANT_USERNAME");
     	String participantPassword = getProperty("PARTICIPANT_PASSWORD");
     	synapseParticipant.login(participantUserName, participantPassword);
-   }
+    }
     
     /**
      * Create a project for the Challenge.
      * Create the Evaluation queue.
      * Provide access to the participant.
+     * @throws UnsupportedEncodingException  
      */
-    public void setUp() throws SynapseException{
+    public void setUp() throws SynapseException, UnsupportedEncodingException {
+    	// first make sure the objects to be created don't already exist
+    	tearDown();
+    	
     	project = new Project();
-    	project.setName("SynapseChallengeTemplate java edition");
+    	project.setName(CHALLENGE_PROJECT_NAME);
     	project = synapseAdmin.createEntity(project);
     	System.out.println("Created "+project.getId()+" "+project.getName());
     	evaluation = new Evaluation();
     	evaluation.setContentSource(project.getId());
-    	evaluation.setName("SynapseChallengeTemplate java edition");
+    	evaluation.setName(CHALLENGE_EVALUATION_NAME);
     	evaluation.setStatus(EvaluationStatus.OPEN);
+    	evaluation.setSubmissionInstructionsMessage("To submit to the XYZ Challenge, send a tab-delimited file as described here: https://...");
+    	evaluation.setSubmissionReceiptMessage("Your submission has been received.   For further information, consult the leaderborad at https://...");
     	evaluation = synapseAdmin.createEvaluation(evaluation);
     	AccessControlList acl = synapseAdmin.getEvaluationAcl(evaluation.getId());
     	Set<ResourceAccess> ras = acl.getResourceAccess();
@@ -142,6 +174,7 @@ public class SynapseChallengeTemplate {
     	
     	// participant creates their own project
     	participantProject = new Project();
+    	participantProject.setName(PARTICIPANT_PROJECT_NAME);
     	participantProject = synapseParticipant.createEntity(participantProject);
     	// participant creates a file which will be their submission
     	file = new FileEntity();
@@ -150,8 +183,43 @@ public class SynapseChallengeTemplate {
     	file.setDataFileHandleId(fileHandleId);
     	file.setParentId(participantProject.getId());
     	file = synapseParticipant.createEntity(file);
-    	System.out.println("Created participant project: "+participantProject.getId());
+    	System.out.println("Created "+participantProject.getId()+" "+participantProject.getName());
    }
+    
+    private static String findProjectId(SynapseClient synapseClient, String name) throws SynapseException {
+		try {
+        	JSONObject o = synapseClient.query("select id from entity where \"name\"==\""+name+"\"");
+    		long totalNumberOfResults = o.getLong("totalNumberOfResults");
+    		if (totalNumberOfResults>1) {
+    			System.out.println("Unexpected: "+totalNumberOfResults+" projects are named "+name);
+        	} else if (totalNumberOfResults==1L) {
+           		JSONObject project = o.getJSONArray("results").getJSONObject(0);
+           		String id = project.getString("entity.id");
+        		return id;
+        	}
+        	// otherwise totalNumberOfResults==0
+		} catch (JSONException e) {
+			throw new RuntimeException(e);
+		}
+		return null;
+    }
+    
+    public void tearDown() throws SynapseException, UnsupportedEncodingException {
+		String projectId = findProjectId(synapseParticipant, PARTICIPANT_PROJECT_NAME);
+		if (projectId!=null) {
+			synapseParticipant.deleteEntityById(projectId.toString());
+		}
+		try {
+			Evaluation evaluation = synapseAdmin.findEvaluation(CHALLENGE_EVALUATION_NAME);
+    		synapseAdmin.deleteEvaluation(evaluation.getId());
+    	} catch (SynapseNotFoundException e) {
+    		// evaluation does not exist
+    	}
+		projectId = findProjectId(synapseAdmin, CHALLENGE_PROJECT_NAME);
+    	if (projectId!=null) {
+    		synapseAdmin.deleteEntityById(projectId.toString());
+    	}
+    }
     
     /**
      * Submit the file to the Evaluation
@@ -163,15 +231,49 @@ public class SynapseChallengeTemplate {
 	    	submission.setEntityId(file.getId());
 	    	submission.setVersionNumber(file.getVersionNumber());
 	    	submission.setEvaluationId(evaluation.getId());
+	    	submission.setSubmitterAlias("Team Awesome");
 	    	synapseParticipant.createSubmission(submission, file.getEtag());
     	}
     	System.out.println("Submitted "+NUM_OF_SUBMISSIONS_TO_CREATE+" submissions to Evaluation queue: "+evaluation.getId());
     }
     
     /**
-     * There are two types of scoring, that in which each submission is scored along and that
-     * in which the entire set of submissions is rescored whenever a new one arrives.  This
-     * demonstrates the latter
+     * This demonstrates a lightweight validation step
+     * 
+     * Beyond simple validation, other criteria could be checked, e.g.
+     * whether the user has exceeded a limit on the number of submissions
+     * permitted in a given time period
+     * 
+     * @throws SynapseException
+     */
+    public void validate() throws SynapseException, IOException {
+    	List<SubmissionStatus> statusesToUpdate = new ArrayList<SubmissionStatus>();
+    	long total = Integer.MAX_VALUE;
+       	for (int offset=0; offset<total; offset+=PAGE_SIZE) {
+       			// get the newly RECEIVED Submissions
+       		PaginatedResults<SubmissionBundle> submissionPGs = 
+       			synapseAdmin.getAllSubmissionBundlesByStatus(evaluation.getId(), SubmissionStatusEnum.RECEIVED, offset, PAGE_SIZE);
+        	total = (int)submissionPGs.getTotalNumberOfResults();
+        	List<SubmissionBundle> page = submissionPGs.getResults();
+        	for (int i=0; i<page.size(); i++) {
+        		SubmissionBundle bundle = page.get(i);
+        		Submission sub = bundle.getSubmission();
+       			File temp = downloadSubmissionFile(sub);
+       			// Examine file to decide whether the submission is valid
+       			SubmissionStatusEnum newStatus = SubmissionStatusEnum.VALIDATED; // OR SubmissionStatusEnum.INVALID
+           		SubmissionStatus status = bundle.getSubmissionStatus();
+           		status.setStatus(newStatus);
+           	    statusesToUpdate.add(status);
+        	}
+       	}
+       	// we can update all the statuses in a batch
+       	updateSubmissionStatusBatch(statusesToUpdate);
+    }
+    
+    /**
+     * Note: There are two types of scoring, that in which each submission is scored alone and that
+     * in which the entire set of submissions is rescored whenever a new one arrives. 
+     * 
      * @throws SynapseException
      */
     public void score() throws SynapseException, IOException {
@@ -179,8 +281,15 @@ public class SynapseChallengeTemplate {
     	List<SubmissionStatus> statusesToUpdate = new ArrayList<SubmissionStatus>();
     	long total = Integer.MAX_VALUE;
        	for (int offset=0; offset<total; offset+=PAGE_SIZE) {
-       		PaginatedResults<SubmissionBundle> submissionPGs = 
-       				synapseAdmin.getAllSubmissionBundles(evaluation.getId(), offset, PAGE_SIZE);
+       		PaginatedResults<SubmissionBundle> submissionPGs = null;
+       		if (true) { 
+       			// get ALL the submissions in the Evaluation
+       			submissionPGs = synapseAdmin.getAllSubmissionBundles(evaluation.getId(), offset, PAGE_SIZE);
+       		} else {
+       			// alternatively just get the unscored submissions in the Evaluation
+       			// here we get the ones that the 'validation' step (above) marked as validated
+       			submissionPGs = synapseAdmin.getAllSubmissionBundlesByStatus(evaluation.getId(), SubmissionStatusEnum.VALIDATED, offset, PAGE_SIZE);
+       		}
         	total = (int)submissionPGs.getTotalNumberOfResults();
         	List<SubmissionBundle> page = submissionPGs.getResults();
         	for (int i=0; i<page.size(); i++) {
@@ -188,9 +297,7 @@ public class SynapseChallengeTemplate {
         		Submission sub = bundle.getSubmission();
         		// at least once, download file and make sure it's correct
         		if (offset==0 && i==0) {
-        			String fileHandleId = getFileHandleIdFromEntityBundle(sub.getEntityBundleJSON());
-        			File temp = File.createTempFile("temp", null);
-        			synapseAdmin.downloadFromSubmission(sub.getId(), fileHandleId, temp);
+        			File temp = downloadSubmissionFile(sub);
         			String expectedMD5 = MD5ChecksumHelper.getMD5ChecksumForByteArray(FILE_CONTENT.getBytes(Charset.defaultCharset()));
         			String actualMD5 = MD5ChecksumHelper.getMD5Checksum(temp);
         			if (!expectedMD5.equals(actualMD5)) throw new IllegalStateException("Downloaded file does not have expected content.");
@@ -213,43 +320,62 @@ public class SynapseChallengeTemplate {
        	
        	System.out.println("Retrieved "+total+" submissions for scoring.");
        	
-       	// now we have a batch of statuses to update
-       	String batchToken = null;
-       	for (int offset=0; offset<statusesToUpdate.size(); offset+=BATCH_SIZE) {
-       		SubmissionStatusBatch updateBatch = new SubmissionStatusBatch();
-       		List<SubmissionStatus> batch = new ArrayList<SubmissionStatus>();
-       		for (int i=0; i<BATCH_SIZE && offset+i<statusesToUpdate.size(); i++) {
-       			batch.add(statusesToUpdate.get(offset+i));
-       		}
-       		updateBatch.setStatuses(batch);
-       		boolean isFirstBatch = (offset==0);
-       		updateBatch.setIsFirstBatch(isFirstBatch);
-       		boolean isLastBatch = (offset+BATCH_SIZE)>=statusesToUpdate.size();
-       		updateBatch.setIsLastBatch(isLastBatch);
-       		updateBatch.setBatchToken(batchToken);
-       		BatchUploadResponse response = 
-       				synapseAdmin.updateSubmissionStatusBatch(evaluation.getId(), updateBatch);
-       		batchToken = response.getNextUploadToken();
-       	}
+       	updateSubmissionStatusBatch(statusesToUpdate);
        	
        	System.out.println("Scored "+statusesToUpdate.size()+" submissions.");
        	long delta = System.currentTimeMillis() - startTime;
        	System.out.println("Elapsed time for running scoring app: "+formatInterval(delta));
     }
     
+    private static final int BATCH_UPLOAD_RETRY_COUNT = 3;
+    
+    private void updateSubmissionStatusBatch(List<SubmissionStatus> statusesToUpdate) throws SynapseException {
+       	// now we have a batch of statuses to update
+    	for (int retry=0; retry<BATCH_UPLOAD_RETRY_COUNT; retry++) {
+    		try {
+		       	String batchToken = null;
+		       	for (int offset=0; offset<statusesToUpdate.size(); offset+=BATCH_SIZE) {
+		       		SubmissionStatusBatch updateBatch = new SubmissionStatusBatch();
+		       		List<SubmissionStatus> batch = new ArrayList<SubmissionStatus>();
+		       		for (int i=0; i<BATCH_SIZE && offset+i<statusesToUpdate.size(); i++) {
+		       			batch.add(statusesToUpdate.get(offset+i));
+		       		}
+		       		updateBatch.setStatuses(batch);
+		       		boolean isFirstBatch = (offset==0);
+		       		updateBatch.setIsFirstBatch(isFirstBatch);
+		       		boolean isLastBatch = (offset+BATCH_SIZE)>=statusesToUpdate.size();
+		       		updateBatch.setIsLastBatch(isLastBatch);
+		       		updateBatch.setBatchToken(batchToken);
+		       		BatchUploadResponse response = 
+		       				synapseAdmin.updateSubmissionStatusBatch(evaluation.getId(), updateBatch);
+		       		batchToken = response.getNextUploadToken();
+		       	}
+		       	break; // success!
+    		} catch (SynapseConflictingUpdateException e) {
+    			// we collided with someone else access the Evaluation.  Will retry!
+    		}
+    	}
+    }
+    
+    private File downloadSubmissionFile(Submission submission) throws SynapseException, IOException {
+		String fileHandleId = getFileHandleIdFromEntityBundle(submission.getEntityBundleJSON());
+		File temp = File.createTempFile("temp", null);
+		synapseAdmin.downloadFromSubmission(submission.getId(), fileHandleId, temp);
+		return temp;
+    }
+    
     private static String getFileHandleIdFromEntityBundle(String s) {
     	try {
-	    	JSONParser parser = new JSONParser();
-	    	JSONObject bundle = (JSONObject)parser.parse(s);
+	    	JSONObject bundle = new JSONObject(s);
 	    	JSONArray fileHandles = (JSONArray)bundle.get("fileHandles");
-	    	for (Object elem : fileHandles) {
-	    		JSONObject fileHandle = (JSONObject)elem;
+	    	for (int i=0; i<fileHandles.length(); i++) {
+	    		JSONObject fileHandle = fileHandles.getJSONObject(i);
 	    		if (!fileHandle.get("concreteType").equals("org.sagebionetworks.repo.model.file.PreviewFileHandle")) {
 	    			return (String)fileHandle.get("id");
 	    		}
 	    	}
 	    	throw new IllegalArgumentException("File has no file handle ID");
-    	} catch (ParseException e) {
+    	} catch (JSONException e) {
     		throw new RuntimeException(e);
     	}
     }
@@ -262,10 +388,18 @@ public class SynapseChallengeTemplate {
         return String.format("%02dh:%02dm:%02d.%03ds", hr, min, sec, ms);
     }
     
+    private static final String STRING_ANNOTATION_NAME = "aString";
+    
     private static void addAnnotations(Annotations a, int i) {
 		StringAnnotation sa = new StringAnnotation();
+		// the 'isPrivate' flag should be set to 'true' for information
+		// used by the scoring application but not to be revealed to participants
+		// to see 'public' annotations requires READ access in the Evaluation's
+		// access control list, as the participant has (see setUp(), above). To
+		// see 'private' annotatations requires READ_PRIVATE_SUBMISSION access,
+		// which the Evaluation admin has by default
 		sa.setIsPrivate(false);
-		sa.setKey("aString");
+		sa.setKey(STRING_ANNOTATION_NAME);
 		sa.setValue("xyz"+i);
 		List<StringAnnotation> sas = a.getStringAnnos();
 		if (sas==null) {
@@ -295,8 +429,6 @@ public class SynapseChallengeTemplate {
 		las.add(la);   	
     }
     
-    private static final long WAIT_FOR_QUERY_ANNOTATIONS_MILLIS = 60000L; // a minute
-    
     /**
      * This demonstrates retrieving submission scoring results using the Evaluation query API.
      * In practice the query would be put in an "API SuperTable" widget in a wiki page in the
@@ -311,41 +443,29 @@ public class SynapseChallengeTemplate {
 	    	String query = "select * from evaluation_"+evaluation.getId();
 	    	QueryTableResults qtr = synapseParticipant.queryEvaluation(query);
 	    	long total = qtr.getTotalNumberOfResults();
+	    	List<String> headers = qtr.getHeaders();
 	    	
-	    	if (total<NUM_OF_SUBMISSIONS_TO_CREATE) {
+	    	if (total<NUM_OF_SUBMISSIONS_TO_CREATE || !headers.contains(STRING_ANNOTATION_NAME)) {
+	    		// annotations have not yet been published
 	    		Thread.sleep(2000L);
 	    		continue;
 	    	}
 	    	
-	    	// the annotations have been published.  Let's check the results
-	    	List<String> headers = qtr.getHeaders();
 	    	System.out.println("Columns available for leader board: "+headers);
 	    	List<Row> rows = qtr.getRows();
-	    	System.out.println(""+rows.size()+" retrieved.");   
+	    	System.out.println(""+rows.size()+" retrieved by querying Submission annotations.");  
+	    	System.out.println("To create a leaderboard, add this widget to a wiki page:\n"+
+	    			SAMPLE_LEADERBOARD_1+
+	    			evaluation.getId()+
+	    			SAMPLE_LEADERBOARD_2);
 	    	return;
     	}
     	//we reach this line only if we time out
     	System.out.println("Error:  Annotations have not appeared in query results.");
     }
     
-    public void tearDown() throws SynapseException {
-    	if (synapseParticipant!=null) {
-    		if (participantProject!=null) {
-    			if (participantProject.getId()!=null) synapseParticipant.deleteEntity(participantProject);
-    			participantProject=null;
-    		}
-    	}
-    	if (synapseAdmin!=null){ 
-	    	if (evaluation!=null) {
-	    		synapseAdmin.deleteEvaluation(evaluation.getId());
-	    		evaluation=null;
-	    	}
-	    	if (project!=null) {
-	    		synapseAdmin.deleteEntity(project);
-	    		project=null;
-	    	}
-    	}
-    }
+    private static final String SAMPLE_LEADERBOARD_1 = "${supertable?path=%2Fevaluation%2Fsubmission%2Fquery%3Fquery%3Dselect%2B%2A%2Bfrom%2Bevaluation%5F";
+    private static final String SAMPLE_LEADERBOARD_2 = "&paging=true&queryTableResults=true&showIfLoggedInOnly=false&pageSize=25&showRowNumber=false&jsonResultsKeyName=rows&columnConfig0=none%2CSubmission ID%2CobjectId%3B%2CNONE&columnConfig1=none%2CaString%2CaString%3B%2CNONE&columnConfig2=none%2Crank%2Crank%3B%2CNONE&columnConfig3=none%2Ccorrelation%2Ccorrelation%3B%2CNONE&columnConfig4=none%2Cstatus%2Cstatus%3B%2CNONE}";
     
 	public static void initProperties() {
 		if (properties!=null) return;
@@ -371,21 +491,14 @@ public class SynapseChallengeTemplate {
 		if (commandlineOption!=null) return commandlineOption;
 		String embeddedProperty = properties.getProperty(key);
 		if (embeddedProperty!=null) return embeddedProperty;
-		// (could also check environment variables)
 		throw new RuntimeException("Cannot find value for "+key);
 	}	
 	  
 	private static SynapseClient createSynapseClient() {
 		SynapseClientImpl scIntern = new SynapseClientImpl();
-		if (USE_STAGING) {
-			scIntern.setAuthEndpoint("https://repo-staging.prod.sagebase.org/auth/v1");
-			scIntern.setRepositoryEndpoint("https://repo-staging.prod.sagebase.org/repo/v1");
-			scIntern.setFileEndpoint("https://repo-staging.prod.sagebase.org/file/v1");
-		} else { // prod
-			scIntern.setAuthEndpoint("https://repo-prod.prod.sagebase.org/auth/v1");
-			scIntern.setRepositoryEndpoint("https://repo-prod.prod.sagebase.org/repo/v1");
-			scIntern.setFileEndpoint("https://repo-prod.prod.sagebase.org/file/v1");
-		}
+		scIntern.setAuthEndpoint("https://repo-prod.prod.sagebase.org/auth/v1");
+		scIntern.setRepositoryEndpoint("https://repo-prod.prod.sagebase.org/repo/v1");
+		scIntern.setFileEndpoint("https://repo-prod.prod.sagebase.org/file/v1");
 		return SynapseProfileProxy.createProfileProxy(scIntern);
   }
 
