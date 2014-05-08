@@ -16,15 +16,7 @@ library(RCurl)
 library(RJSONIO)
 library(synapseClient)
 
-# !!! TEMPORARY: Run on 'staging' !!!
-synSetEndpoints('http://localhost:8080/services-repository-develop-SNAPSHOT/repo/v1', 
-  'http://localhost:8080/services-repository-develop-SNAPSHOT/auth/v1', 
-  'http://localhost:8080/services-repository-develop-SNAPSHOT/file/v1')
-#synapseLogin()
-synapseLogin(username="migrationAdmin@sagebase.org", apiKey="chjDV/MUjPjrf0o93wEX9ul2SWWHZHIuwpVp16q3lSsihvYZTzYcQ5sHyhGbVJ4ymWkiIbJq3ueacp233JVizw==", rememberMe=F)
-# !!! end TEMPORARY: Run on 'staging' !!!
-
-
+synapseLogin()
 
 # if true, then tear down at the end, leaving the system in its initial state
 # if false, leave the created objects in place for subsequent use
@@ -42,7 +34,7 @@ BATCH_SIZE <- 20
 # make sure there are multiple batches to handle
 NUM_OF_SUBMISSIONS_TO_CREATE <- 2*PAGE_SIZE+1
 
-WAIT_FOR_QUERY_ANNOTATIONS_MILLIS <- 60000L # a minute
+WAIT_FOR_QUERY_ANNOTATIONS_SEC <- 20L # must be under a minute
 
 
 findProject<-function(name) {
@@ -219,23 +211,98 @@ updateSubmissionStatusBatch<-function(evaluation, statusesToUpdate) {
   }
 }
 
-score<-function() {
-  
+score<-function(evaluation) {
+  total<-1e+10
+  offset<-0
+  statusesToUpdate<-list()
+  while(offset<total) {
+    if (TRUE) {
+      # get ALL the submissions in the Evaluation
+      submissionBundles<-synRestGET(sprintf("/evaluation/%s/submission/bundle/all?limit=%s&offset=%s",
+          evaluation$id, PAGE_SIZE, offset)) 
+    } else {
+      # alternatively just get the unscored submissions in the Evaluation
+      # here we get the ones that the 'validation' step (above) marked as validated
+      submissionBundles<-synRestGET(sprintf("/evaluation/%s/submission/bundle/all?limit=%s&offset=%s&status=%s",
+          evaluation$id, PAGE_SIZE, offset, "VALIDATED")) 
+    }
+    total<-submissionBundles$totalNumberOfResults
+    offset<-offset+PAGE_SIZE
+    page<-submissionBundles$results
+    if (length(page)>0) {
+      for (i in 1:length(page)) {
+        # download the file
+        submission<-synGetSubmission(page[[i]]$submission$id)
+        filePath<-getFileLocation(submission)
+        # challenge-specific scoring of the downloaded file goes here
+        subStatus<-page[[i]]$submissionStatus
+        subStatus$status<-"SCORED"
+        # add the score and any other information as submission annotations:
+        subStatus$annotations<-generateAnnotations(offset+i)
+        statusesToUpdate[[length(statusesToUpdate)+1]]<-subStatus
+      }
+    }
+  }
+  updateSubmissionStatusBatch(evaluation, statusesToUpdate)
+  message(sprintf("Retrieved and scored %s submissions.", length(statusesToUpdate)))
 }
 
-query<-function() {
-  
+generateAnnotations<-function(i) {
+  list(
+    stringAnnos=list(
+      list(key="aString", value=sprintf("xyz%s",i), isPrivate=FALSE)
+    ),
+    doubleAnnos=list(
+      list(key="correlation", value=runif(1), isPrivate=FALSE)
+    ),
+    longAnnos  =list(
+      list(key="rank", value=floor(runif(1, max=1000)), isPrivate=FALSE)
+    )
+  )
+}
+
+SAMPLE_LEADERBOARD_1 <- "${supertable?path=%2Fevaluation%2Fsubmission%2Fquery%3Fquery%3Dselect%2B%2A%2Bfrom%2Bevaluation%5F"
+SAMPLE_LEADERBOARD_2 <- "&paging=true&queryTableResults=true&showIfLoggedInOnly=false&pageSize=25&showRowNumber=false&jsonResultsKeyName=rows&columnConfig0=none%2CSubmission ID%2CobjectId%3B%2CNONE&columnConfig1=none%2CaString%2CaString%3B%2CNONE&columnConfig2=none%2Crank%2Crank%3B%2CNONE&columnConfig3=none%2Ccorrelation%2Ccorrelation%3B%2CNONE&columnConfig4=none%2Cstatus%2Cstatus%3B%2CNONE}"
+
+query<-function(evaluation) {
+  start<-Sys.time()
+  while (Sys.time()-start<WAIT_FOR_QUERY_ANNOTATIONS_SEC) {
+    queryResults<-synRestGET(sprintf("/evaluation/submission/query?query=select+*+from+evaluation_%s", evaluation$id))
+    total<-queryResults$totalNumberOfResults
+    headers<-queryResults$headers
+    rows<-queryResults$rows
+    if (total<NUM_OF_SUBMISSIONS_TO_CREATE || !any(headers=="aString")) {
+      Sys.sleep(2)
+    } else {
+      message(sprintf("%s retrieved by querying Submission annotations.", length(rows)))
+      message(sprintf("To create a leaderboard, add this widget to a wiki page: %s%s%s",
+        SAMPLE_LEADERBOARD_1,
+          evaluation$id,
+          SAMPLE_LEADERBOARD_2
+        ))
+      break
+    }
+    message("Error:  Annotations have not appeared in query results.")
+  }
 }
 
 endToEndDemo<-function() {
   tryCatch(
     {
+      # create a Challenge project, evaluation queue, etc.
       createdObjects<-setUp()
       evaluation<-createdObjects$evaluation
+      # create a handful of challenge submissions
       submitToChallenge(evaluation, createdObjects$participantFile)
+      # validate correctness
+      # (this can be done at the same time as scoring, below, but we
+      # demonstrate doing the two tasks separately)
       validate(evaluation)
-      score()
-      query()
+      # score the validated submissions
+      score(evaluation)
+      # query the results (this is the action used by dynamic leader boards
+      # viewable in challenge web pages)
+      query(evaluation)
     }, 
     finally=tearDown()
   )
