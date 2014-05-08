@@ -266,7 +266,8 @@ SAMPLE_LEADERBOARD_2 <- "&paging=true&queryTableResults=true&showIfLoggedInOnly=
 
 query<-function(evaluation) {
   start<-Sys.time()
-  while (Sys.time()-start<WAIT_FOR_QUERY_ANNOTATIONS_SEC) {
+  annotationsFound=FALSE
+  while ((Sys.time()-start<WAIT_FOR_QUERY_ANNOTATIONS_SEC) && !annotationsFound) {
     queryResults<-synRestGET(sprintf("/evaluation/submission/query?query=select+*+from+evaluation_%s", evaluation$id))
     total<-queryResults$totalNumberOfResults
     headers<-queryResults$headers
@@ -280,10 +281,10 @@ query<-function(evaluation) {
           evaluation$id,
           SAMPLE_LEADERBOARD_2
         ))
-      break
+      annotationsFound = TRUE
     }
-    message("Error:  Annotations have not appeared in query results.")
   }
+  if (!annotationsFound) message("Error:  Annotations have not appeared in query results.")
 }
 
 endToEndDemo<-function() {
