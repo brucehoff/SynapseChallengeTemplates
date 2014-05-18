@@ -74,6 +74,23 @@ Sincerely,
 the scoring script
 """
 
+LEADERBOARD_MARKDOWN = """\
+#Leaderboard
+
+{supertable}
+
+"""
+
+LEADERBOARD_COLUMNS = [ {'column_name':'objectId', 'display_name':'ID'},
+                        {'column_name':'name', 'display_name':'name'},
+                        {'column_name':'entityId', 'display_name':'entity', 'renderer':'synapseid'},
+                        {'column_name':'status', 'display_name':'status'},
+                        {'column_name':'submitterAlias', 'display_name':'team'},
+                        {'column_name':'userId', 'display_name':'user ID', 'renderer':'userid'},
+                        {'column_name':'bayesian_whatsajigger', 'display_name':'Bayesian Whatsajigger'},
+                        {'column_name':'root_mean_squared_flapdoodle', 'display_name':'RMSF'},
+                        {'column_name':'discombobulation_index', 'display_name':'Discombobulation', 'sort':'DESC'} ]
+
 
 def name_space_with_user_name(name):
     """Synapse project names have to be unique. This creates a name unique to the current user."""
@@ -310,30 +327,58 @@ def query(evaluation):
         else:
             found = True
 
-            columns = [ {'column_name':'objectId', 'display_name':'ID'},
-                        {'column_name':'name', 'display_name':'name'},
-                        {'column_name':'entityId', 'display_name':'entity'},
-                        {'column_name':'status', 'display_name':'status'},
-                        {'column_name':'submitterAlias', 'display_name':'team'},
-                        {'column_name':'userId', 'display_name':'user ID'},
-                        {'column_name':'bayesian_whatsajigger', 'display_name':'Bayesian Whatsajigger'},
-                        {'column_name':'root_mean_squared_flapdoodle', 'display_name':'RMSF'},
-                        {'column_name':'discombobulation_index', 'display_name':'Discombobulation'} ]
-
-            ## find the position of the columns in the rows
-            for column in columns:
+            ## annotate each column with it's position in the query results, if it's there
+            for column in LEADERBOARD_COLUMNS:
                 if column['column_name'] in results.headers:
                     column['index'] = results.headers.index(column['column_name'])
 
             ## print leaderboard
-            print "\t".join([column['display_name'] for column in columns if 'index' in column])
+            print "\t".join([column['display_name'] for column in LEADERBOARD_COLUMNS if 'index' in column])
             for row in results:
                 if row[results.headers.index('status')] == 'SCORED':
-                    indexes = (column['index'] for column in columns if 'index' in column)
+                    indexes = (column['index'] for column in LEADERBOARD_COLUMNS if 'index' in column)
                     print "\t".join("%0.4f"%row[i] if isinstance(row[i],float) else unicode(row[i]) for i in indexes)
 
     if not found:
         sys.stderr.write("Error: Annotations have not appeared in query results.\n")
+
+
+def create_leaderboard(evaluation, challenge_home_entity):
+    """
+    Create the leaderboard using a supertable, a markdown extension that dynamically
+    builds a table by querying submissions. Because the supertable re-queries whenever
+    the page is rendered, this step only has to be done once.
+    """
+    uri_base = urllib.quote_plus("/evaluation/submission/query")
+    # it's incredibly picky that the equals sign here has to be urlencoded, but
+    # the later equals signs CAN'T be urlencoded.
+    query = urllib.quote_plus('query=select * from evaluation_%s where status=="SCORED"' % evaluation.id)
+    params = [  ('paging', 'true'),
+                ('queryTableResults', 'true'),
+                ('showIfLoggedInOnly', 'false'),
+                ('pageSize', '25'),
+                ('showRowNumber', 'false'),
+                ('jsonResultsKeyName', 'rows')]
+
+    # Columns specifications have 4 fields: renderer, display name, column name, sort.
+    # Renderer and sort are usually 'none' and 'NONE'.
+    i = 0
+    for column in LEADERBOARD_COLUMNS:
+        fields = dict(renderer='none', sort='NONE')
+        fields.update(column)
+        params.append(('columnConfig%s' % i, "{renderer},{display_name},{column_name};,{sort}".format(**fields)))
+        i += 1
+
+    supertable = "${supertable?path=" + uri_base + "%3F" + query + "&" + "&".join([key+"="+urllib.quote_plus(value) for key,value in params]) + "}"
+
+    wiki = Wiki(title="Leaderboard",
+                owner=challenge_home_entity,
+                markdown=LEADERBOARD_MARKDOWN.format(supertable=supertable))
+    wiki = syn.store(wiki)
+
+    # Notes: supertable fails w/ bizarre error when sorting by a floating point column.
+    #        can we format floating point "%0.4f"
+    #        supertable is really picky about what gets URL encoded.
 
 
 def challenge_demo():
@@ -357,10 +402,14 @@ def challenge_demo():
         # viewable in challenge web pages)
         query(evaluation)
 
+        # create leaderboard wiki page
+        create_leaderboard(evaluation, objects['challenge_project'])
+
     finally:
         if TEAR_DOWN_AFTER:
             tear_down()
 
 
-challenge_demo()
+if __name__ == '__main__':
+    challenge_demo()
 
