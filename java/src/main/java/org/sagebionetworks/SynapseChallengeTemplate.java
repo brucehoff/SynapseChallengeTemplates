@@ -350,7 +350,7 @@ public class SynapseChallengeTemplate {
         			annotations=new Annotations();
         			status.setAnnotations(annotations);
         		}
-    			addAnnotations(annotations, offset+i+1); // just add annotations for first submission
+    			addAnnotations(annotations, offset+i+1);
     			status.setStatus(SubmissionStatusEnum.SCORED);
     			statusesToUpdate.add(status);
         	}
