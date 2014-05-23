@@ -68,9 +68,9 @@ public class SynapseChallengeTemplate {
 	private static final boolean TEAR_DOWN_AFTER = true;
 	
 	// if 'TEAR_DOWN_AFTER' is set to false, then use unique names for projects and the evaluation:
-    private static final String CHALLENGE_PROJECT_NAME = "SynapseChallengeTemplate java edition";
-    private static final String CHALLENGE_EVALUATION_NAME = "SynapseChallengeTemplate java edition";
-    private static final String PARTICIPANT_PROJECT_NAME = "SynapseChallengeTemplate Participant java edition";
+    private static final String CHALLENGE_PROJECT_NAME = "SynapseChallengeTemplate PLEASE CHANGE THIS NAME";
+    private static final String CHALLENGE_EVALUATION_NAME = "SynapseChallengeTemplate PLEASE CHANGE THIS NAME";
+    private static final String PARTICIPANT_PROJECT_NAME = "SynapseChallengeTemplate Participant PLEASE CHANGE THIS NAME";
     
     // the page size can be bigger, we do this just to demonstrate pagination
     private static int PAGE_SIZE = 20;
@@ -79,7 +79,7 @@ public class SynapseChallengeTemplate {
     private static int BATCH_SIZE = 20;
     
     // make sure there are multiple batches to handle
-    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2*PAGE_SIZE+1; 
+    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2; //2*PAGE_SIZE+1; 
 
     private static final long WAIT_FOR_QUERY_ANNOTATIONS_MILLIS = 60000L; // a minute
     
@@ -350,7 +350,7 @@ public class SynapseChallengeTemplate {
         			annotations=new Annotations();
         			status.setAnnotations(annotations);
         		}
-    			addAnnotations(annotations, offset+i+1);
+    			if (offset+i==0) addAnnotations(annotations, offset+i+1); // just add annotations for first submission
     			status.setStatus(SubmissionStatusEnum.SCORED);
     			statusesToUpdate.add(status);
         	}
