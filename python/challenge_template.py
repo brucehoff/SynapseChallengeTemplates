@@ -74,6 +74,42 @@ Sincerely,
 the scoring script
 """
 
+CHALLENGE_PROJECT_WIKI = """\
+# {title}
+
+Join button to register
+${{jointeam?teamId={teamId}&showProfileForm=true&isMemberMessage=You have successfully joined the challenge&text=Join&successMessage=Invitation Accepted}}
+
+|Launch date: ||
+|Final Submission date: ||
+
+## Challenge overview
+High level summary of the Challenge including the Challenge questions and their significance
+
+## Detailed information
+Add these sections as separate wiki pages to give a full description of the challenge:
+ * News
+ * Data Description
+ * Questions and Scoring
+ * Submitting Results
+ * Leaderboards
+ * Computing Resources
+ * Challenge Organizers
+
+${{evalsubmit?subchallengeIdList={evalId}&unavailableMessage=Join the team to submit to the challenge}}
+
+## Logos and graphics
+ * Challenge Banner
+ * DREAM/Sage logos in top left corner
+ * Data Contributor institution logos
+ * Challenge Funders and Sponsors logos
+
+## Help
+Link to forum where all questions about the Challenge should be posted
+
+For more information see [Creating a Challenge Space in Synapse](#!Synapse:syn2453886/wiki/)
+"""
+
 LEADERBOARD_MARKDOWN = """\
 #Leaderboard
 
@@ -133,6 +169,11 @@ def update_submissions_status_batch(evaluation, statuses):
                 raise
 
 
+def create_team(name, description):
+    team = {'name': name, 'description': description, 'canPublicJoin':True}
+    return syn.restPOST("/team", body=json.dumps(team))
+
+
 class Query(object):
     """
     An object that helps with paging through annotation query results.
@@ -169,6 +210,7 @@ class Query(object):
 
 def set_up():
     tear_down()
+    time.sleep(3)
     try:
 
         # Create the Challenge Project
@@ -183,6 +225,13 @@ def set_up():
             submissionReceiptMessage="Your submission has been received. For further information, consult the leader board at https://..."))
         print "Created Evaluation %s %s" % (evaluation.id, evaluation.name)
 
+        # Create teams for participants and administrators
+        participants_team = create_team(CHALLENGE_PROJECT_NAME+' Participants', description='A team for people who have joined the challenge')
+        admin_team = create_team(CHALLENGE_PROJECT_NAME+' Administrators', description='A team for challenge administrators')
+
+        syn.setPermissions(challenge_project, admin_team['id'], ['READ', 'UPDATE', 'DELETE', 'CHANGE_PERMISSIONS', 'DOWNLOAD', 'PARTICIPATE', 'SUBMIT'])
+        syn.setPermissions(evaluation, participants_team['id'], ['READ', 'PARTICIPATE', 'SUBMIT'])
+
         # Create the participant project
         participant_project = syn.store(Project(name=name_space_with_user_name(PARTICIPANT_PROJECT_NAME)))
         print "Created project %s %s" % (participant_project.id, participant_project.name)
@@ -192,10 +241,13 @@ def set_up():
         return dict(challenge_project=challenge_project,
                     evaluation=evaluation,
                     participant_project=participant_project,
-                    participant_file=participant_file)
+                    participant_file=participant_file,
+                    participants_team=participants_team,
+                    admin_team=admin_team)
 
     except Exception as ex:
         tear_down()
+        raise
 
 
 def tear_down():
@@ -220,6 +272,11 @@ def tear_down():
         except Exception as ex1:
             print ex1
             sys.stderr.write('Failed to clean up: %s\n' % str(name))
+
+    for name in [CHALLENGE_PROJECT_NAME+' Participants', CHALLENGE_PROJECT_NAME+' Administrators']:
+        for team in syn._GET_paginated('/teams?fragment=' + urllib.quote_plus(name)):
+            print 'deleting', team['id'], team['name']
+            syn.restDELETE('/team/{id}'.format(id=team['id']))
 
 
 def submit_to_challenge(evaluation, participant_file, n=NUM_OF_SUBMISSIONS_TO_CREATE):
@@ -343,7 +400,7 @@ def query(evaluation):
         sys.stderr.write("Error: Annotations have not appeared in query results.\n")
 
 
-def create_leaderboard(evaluation, challenge_home_entity):
+def create_supertable_leaderboard(evaluation):
     """
     Create the leaderboard using a supertable, a markdown extension that dynamically
     builds a table by querying submissions. Because the supertable re-queries whenever
@@ -352,7 +409,7 @@ def create_leaderboard(evaluation, challenge_home_entity):
     uri_base = urllib.quote_plus("/evaluation/submission/query")
     # it's incredibly picky that the equals sign here has to be urlencoded, but
     # the later equals signs CAN'T be urlencoded.
-    query = urllib.quote_plus('query=select * from evaluation_%s where status=="SCORED"' % evaluation.id)
+    query = urllib.quote_plus('query=select * from evaluation_%s where status=="SCORED"' % utils.id_of(evaluation))
     params = [  ('paging', 'true'),
                 ('queryTableResults', 'true'),
                 ('showIfLoggedInOnly', 'false'),
@@ -362,23 +419,39 @@ def create_leaderboard(evaluation, challenge_home_entity):
 
     # Columns specifications have 4 fields: renderer, display name, column name, sort.
     # Renderer and sort are usually 'none' and 'NONE'.
-    i = 0
-    for column in LEADERBOARD_COLUMNS:
+    for i, column in enumerate(LEADERBOARD_COLUMNS):
         fields = dict(renderer='none', sort='NONE')
         fields.update(column)
         params.append(('columnConfig%s' % i, "{renderer},{display_name},{column_name};,{sort}".format(**fields)))
-        i += 1
 
-    supertable = "${supertable?path=" + uri_base + "%3F" + query + "&" + "&".join([key+"="+urllib.quote_plus(value) for key,value in params]) + "}"
-
-    wiki = Wiki(title="Leaderboard",
-                owner=challenge_home_entity,
-                markdown=LEADERBOARD_MARKDOWN.format(supertable=supertable))
-    wiki = syn.store(wiki)
+    return "${supertable?path=" + uri_base + "%3F" + query + "&" + "&".join([key+"="+urllib.quote_plus(value) for key,value in params]) + "}"
 
     # Notes: supertable fails w/ bizarre error when sorting by a floating point column.
     #        can we format floating point "%0.4f"
     #        supertable is really picky about what gets URL encoded.
+
+
+def create_wiki(evaluation, challenge_home_entity, team):
+    """
+    Create landing page for challenge and a sub-page for a leaderboard
+    """
+    wiki = Wiki(
+        owner=challenge_home_entity,
+        markdown=CHALLENGE_PROJECT_WIKI.format(
+            title=CHALLENGE_PROJECT_NAME,
+            teamId=team['id'],
+            evalId=evaluation.id))
+    wiki = syn.store(wiki)
+
+    supertable = create_supertable_leaderboard(evaluation)
+
+    lb_wiki = Wiki(
+        owner=challenge_home_entity,
+        parentWikiId=wiki.id,
+        markdown=LEADERBOARD_MARKDOWN.format(supertable=supertable))
+    lb_wiki = syn.store(lb_wiki)
+
+
 
 
 def challenge_demo():
@@ -403,7 +476,7 @@ def challenge_demo():
         query(evaluation)
 
         # create leaderboard wiki page
-        create_leaderboard(evaluation, objects['challenge_project'])
+        create_wiki(evaluation, objects['challenge_project'], objects['participants_team'])
 
     finally:
         if TEAR_DOWN_AFTER:
