@@ -79,7 +79,7 @@ public class SynapseChallengeTemplate {
     private static int BATCH_SIZE = 20;
     
     // make sure there are multiple batches to handle
-    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2; //2*PAGE_SIZE+1; 
+    private static int NUM_OF_SUBMISSIONS_TO_CREATE = 2*PAGE_SIZE+1; 
 
     private static final long WAIT_FOR_QUERY_ANNOTATIONS_MILLIS = 60000L; // a minute
     
@@ -350,7 +350,7 @@ public class SynapseChallengeTemplate {
         			annotations=new Annotations();
         			status.setAnnotations(annotations);
         		}
-    			if (offset+i==0) addAnnotations(annotations, offset+i+1); // just add annotations for first submission
+    			addAnnotations(annotations, offset+i+1); // just add annotations for first submission
     			status.setStatus(SubmissionStatusEnum.SCORED);
     			statusesToUpdate.add(status);
         	}
