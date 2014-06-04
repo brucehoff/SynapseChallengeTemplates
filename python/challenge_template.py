@@ -117,6 +117,7 @@ LEADERBOARD_MARKDOWN = """\
 
 """
 
+## define the columns that will make up the leaderboard
 LEADERBOARD_COLUMNS = [ {'column_name':'objectId', 'display_name':'ID'},
                         {'column_name':'name', 'display_name':'name'},
                         {'column_name':'entityId', 'display_name':'entity', 'renderer':'synapseid'},
@@ -341,7 +342,7 @@ def score(evaluation):
     sys.stdout.write('scoring')
     sys.stdout.flush()
 
-    ## unlike the validate method, here we'll update statuses in bulk, just to be different
+    ## collect statuses here for batch update
     statuses = []
 
     for submission, status in syn.getSubmissionBundles(evaluation, status='VALIDATED'):
@@ -358,6 +359,9 @@ def score(evaluation):
             dict(bayesian_whatsajigger=score[0],
                  root_mean_squared_flapdoodle=score[1],
                  discombobulation_index=score[2]))
+
+        ## we could store each status update individually, but in this example
+        ## we collect the updated status objects to do a batch update.
         #status = syn.store(status)
         statuses.append(status)
 
@@ -366,6 +370,9 @@ def score(evaluation):
 
     sys.stdout.write('\n')
 
+    ## Update statuses in batch. This can be much faster than individual updates,
+    ## especially in rank based scoring methods which recalculate scores for all
+    ## submissions each time a new submission is received.
     update_submissions_status_batch(evaluation, statuses)
 
 
@@ -433,7 +440,11 @@ def create_supertable_leaderboard(evaluation):
 
 def create_wiki(evaluation, challenge_home_entity, team):
     """
-    Create landing page for challenge and a sub-page for a leaderboard
+    Create landing page for challenge and a sub-page for a leaderboard.
+
+    Note that, while this code demonstrates programmatic generation of wiki markdown
+    including leader board table widget, the typical method for creating and editing
+    such content is via the Synapse web portal (www.synapse.org).
     """
     wiki = Wiki(
         owner=challenge_home_entity,
