@@ -251,7 +251,7 @@ public class SynapseChallengeTemplate {
 	    	submission.setVersionNumber(file.getVersionNumber());
 	    	submission.setEvaluationId(evaluation.getId());
 	    	submission.setSubmitterAlias("Team Awesome");
-	    	synapseParticipant.createSubmission(submission, file.getEtag());
+	    	synapseParticipant.createIndividualSubmission(submission, file.getEtag());
     	}
     	System.out.println("Submitted "+NUM_OF_SUBMISSIONS_TO_CREATE+" submissions to Evaluation queue: "+evaluation.getId());
     }
