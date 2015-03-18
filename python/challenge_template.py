@@ -42,6 +42,8 @@ import time
 import traceback
 import urllib
 import uuid
+import warnings
+
 
 
 # use unique names for projects and the evaluation:
@@ -317,47 +319,55 @@ def set_up():
 
 def find_objects(uuid):
     """Based on the given UUID (as a string), find demo artifacts"""
+    found_objects = {}
+
     results = list(syn.chunkedQuery('select id from project where project.name == "%s"' % (CHALLENGE_PROJECT_NAME+" "+uuid)))
     if results:
-        challenge_project = syn.get(results[0]['project.id'])
+        found_objects['challenge_project'] = syn.get(results[0]['project.id'])
 
     results = list(syn.chunkedQuery('select id from project where project.name == "%s"' % (PARTICIPANT_PROJECT_NAME+" "+uuid)))
     if results:
-        participant_project = syn.get(results[0]['project.id'])
+        found_objects['participant_project'] = syn.get(results[0]['project.id'])
 
-    response = syn.restGET("/teams?fragment=" + CHALLENGE_PROJECT_NAME+" "+uuid+" Participants")
-    participants_team = Team(**response['results'][0])
+    response = syn.restGET("/teams?fragment=" + urllib.quote(CHALLENGE_PROJECT_NAME+" "+uuid+" Participants"))
+    if len(response['results']) > 0:
+        found_objects['participants_team'] = Team(**response['results'][0])
+    else:
+        warnings.warn("Couldn't find team: %s" % (CHALLENGE_PROJECT_NAME+" "+uuid+" Participants"))
 
-    syn.restGET("/teams?fragment=" + CHALLENGE_PROJECT_NAME+" "+uuid+" Administrators")
-    admin_team = Team(**response['results'][0])
+    response = syn.restGET("/teams?fragment=" + urllib.quote(CHALLENGE_PROJECT_NAME+" "+uuid+" Administrators"))
+    if len(response['results']) > 0:
+        found_objects['admin_team'] = Team(**response['results'][0])
+    else:
+        warnings.warn("Couldn't find team: %s" % (CHALLENGE_PROJECT_NAME+" "+uuid+" Administrators"))
 
-    return dict(challenge_project=challenge_project,
-                participant_project=participant_project,
-                participants_team=participants_team,
-                admin_team=admin_team)
+    return found_objects
 
 
-def tear_down(objects):
+def tear_down(objects, dry_run=False):
     print "Cleanup:"
 
     for project in (objects[key] for key in objects.keys() if key.endswith("_project")):
         try:
             for evaluation in syn.getEvaluationByContentSource(project.id):
                 try:
-                    print "  deleting", evaluation.id
-                    syn.restDELETE('/evaluation/%s' % evaluation.id)
+                    print "  deleting evaluation ", evaluation.id
+                    if not dry_run:
+                        syn.restDELETE('/evaluation/%s' % evaluation.id)
                 except:
                     sys.stderr.write('Failed to clean up evaluation %s\n' % evaluation.id)
 
             print "  deleting", project.id
-            syn.delete(project)
+            if not dry_run:
+                syn.delete(project)
         except Exception as ex1:
             print ex1
             sys.stderr.write('Failed to clean up project: %s\n' % str(project))
 
     for team in (objects[key] for key in objects.keys() if key.endswith("_team")):
         print 'deleting', team['id'], team['name']
-        syn.restDELETE('/team/{id}'.format(id=team['id']))
+        if not dry_run:
+            syn.restDELETE('/team/{id}'.format(id=team['id']))
 
 
 def submit_to_challenge(evaluation, participant_file, n=NUM_OF_SUBMISSIONS_TO_CREATE):
@@ -653,11 +663,10 @@ def command_demo(args):
 
 def command_cleanup(args):
     objs = find_objects(args.uuid)
-    print "Cleaning up:"
+    print "Cleaning up:", args.uuid
     for key,obj in objs.iteritems():
         print key,obj['name'],obj['id']
-    if not args.dry_run:
-        tear_down(objs)
+    tear_down(objs, dry_run=args.dry_run)
 
 
 def command_list(args):
@@ -707,7 +716,7 @@ def command_score(args):
 
 
 def command_rank(args):
-    pass
+    raise NotImplementedError('Implement a ranking function for your challenge')
 
 
 def main():
