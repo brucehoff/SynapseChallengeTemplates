@@ -1,15 +1,5 @@
 #
 # Create assets to demonstrate challenge scoring in Synapse
-#
-# To use this script, first install the Synapse Python Client
-# http://python-docs.synapse.org/
-#
-# Log in once using your user name and password
-#   import synapseclient
-#   syn = synapseclient.Synapse()
-#   syn.login(<username>, <password>, rememberMe=True)
-#
-# Your credentials will be saved after which you may run this script with no credentials.
 # 
 # Author: chris.bare
 #
