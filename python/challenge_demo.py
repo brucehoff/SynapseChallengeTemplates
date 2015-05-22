@@ -439,7 +439,6 @@ def main():
     parser_demo.set_defaults(func=command_demo)
 
     parser_setup = subparsers.add_parser('setup', help="create challenge artifacts")
-    parser_setup.add_argument("-n", "--number-of-submissions", type=int, default=NUM_OF_SUBMISSIONS_TO_CREATE)
     parser_setup.set_defaults(func=command_setup)
 
     parser_cleanup = subparsers.add_parser('cleanup', help="delete challenge artifacts")

@@ -206,9 +206,6 @@ def score(evaluation, dry_run=False):
     print "-" * 60
     sys.stdout.flush()
 
-    ## collect statuses here for batch update
-    statuses = []
-
     for submission, status in syn.getSubmissionBundles(evaluation, status='VALIDATED'):
 
         status.status = "INVALID"
@@ -239,7 +236,7 @@ def score(evaluation, dry_run=False):
             status.status = "SCORED"
 
             ## if there's a table configured, update it
-            if evaluation.id in conf.leaderboard_tables:
+            if not dry_run and evaluation.id in conf.leaderboard_tables:
                 update_leaderboard_table(conf.leaderboard_tables[evaluation.id], submission, fields=score, dry_run=False)
 
         except Exception as ex1:
