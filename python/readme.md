@@ -23,11 +23,15 @@ All the submissions have been scored at this point. If we wanted to rescore, we 
 
     python challenge.py reset --status RECEIVED [submission ID]
 
+### Messages and Notifications
+
 The script can send several types of messages, which are configured in messages.py. The --send-messages
 flag instructs the script to email the submitter when a submission fails validation or gets scored. The
 --notifications flag sends error messages to challenge administrators, whose synapse user IDs must be
 added to challenge_config.py. The flag --acknowledge-receipt is used when there will be a lag between
 submission and scoring to let users know their submission has been received and passed validation.
+
+### Validation and Scoring
 
 Let's validate the submission we just reset, with the full suite of messages enabled:
 
@@ -45,7 +49,8 @@ Go to the challenge project in Synapse and take a look around. You will find a l
 
     python challenge.py leaderboard [evaluation ID]
 
-To delete the example and clean up associated resources:
+The demo script tags the challenge project and other assets with a UUID to ensure that they are uniquely
+names. Use the UUID to delete the example and clean up associated resources:
 
     python challenge_demo.py cleanup [UUID]
 
@@ -54,5 +59,5 @@ To delete the example and clean up associated resources:
 Starting with the scripts in this folder, simple challenges can be created just by editing challenge_config.py. You'll need to add an evaluation queue for each question in your challenge and write appropriate scoring functions.
 
 ### RPy2
-Often it's more convenient to write statistical code in R. We've successfully used the [Rpy2](http://rpy.sourceforge.net/) library to pass file paths to scoring functions written in R and get back a named list of scoring statistics. Alternatively, there's the R code included in this repo to fully run a challenge in R.
+Often it's more convenient to write statistical code in R. We've successfully used the [Rpy2](http://rpy.sourceforge.net/) library to pass file paths to scoring functions written in R and get back a named list of scoring statistics. Alternatively, there's R code included in the R folder of this repo to fully run a challenge in R.
 
