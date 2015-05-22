@@ -22,7 +22,7 @@ from synapseclient.exceptions import *
 from synapseclient import Activity
 from synapseclient import Project, Folder, File
 from synapseclient import Evaluation, Submission, SubmissionStatus
-from synapseclient import Wiki
+from synapseclient import Wiki, Schema
 from synapseclient.dict_object import DictObject
 
 from collections import OrderedDict
@@ -43,6 +43,8 @@ import traceback
 import urllib
 import uuid
 import warnings
+
+import messages
 
 
 # name for challenge project
@@ -172,9 +174,10 @@ def set_up():
         # give the teams permissions on challenge artifacts
         # see: http://rest.synapse.org/org/sagebionetworks/repo/model/ACCESS_TYPE.html
         # see: http://rest.synapse.org/org/sagebionetworks/evaluation/model/UserEvaluationPermissions.html
-        syn.setPermissions(challenge_project, admin_team.id, ['READ', 'UPDATE', 'DELETE', 'CHANGE_PERMISSIONS', 'DOWNLOAD', 'PARTICIPATE', 'SUBMIT', 'READ_PRIVATE_SUBMISSION'])
-        syn.setPermissions(evaluation, participants_team.id, ['READ', 'PARTICIPATE', 'SUBMIT'])
-
+        syn.setPermissions(challenge_project, admin_team.id, ['CREATE', 'READ', 'UPDATE', 'DELETE', 'CHANGE_PERMISSIONS', 'DOWNLOAD', 'UPLOAD'])
+        syn.setPermissions(challenge_project, participants_team.id, ['READ', 'DOWNLOAD'])
+        syn.setPermissions(evaluation, admin_team.id, ['CREATE', 'READ', 'UPDATE', 'DELETE', 'CHANGE_PERMISSIONS', 'DOWNLOAD', 'PARTICIPATE', 'SUBMIT', 'DELETE_SUBMISSION', 'UPDATE_SUBMISSION', 'READ_PRIVATE_SUBMISSION'])
+        syn.setPermissions(evaluation, participants_team.id, ['CREATE', 'READ', 'UPDATE', 'PARTICIPATE', 'SUBMIT', 'READ_PRIVATE_SUBMISSION'])
         ## the challenge object associates the challenge project with the
         ## participants team
         create_challenge_object(challenge_project, participants_team)
@@ -184,6 +187,15 @@ def set_up():
         print "Created project %s %s" % (participant_project.id, participant_project.name)
 
         participant_file = syn.store(File(synapseclient.utils.make_bogus_data_file(), parent=participant_project))
+
+        # Write challenge config file, which is just an ordinary python
+        # script that can be manually edited later.
+        current_user = syn.getUserProfile()
+        write_config(
+            challenge_syn_id=challenge_project.id,
+            challenge_name=CHALLENGE_PROJECT_NAME,
+            admin_user_ids=[current_user.ownerId],
+            evaluation_queues=[evaluation])
 
         return dict(challenge_project=challenge_project,
                     evaluation=evaluation,
@@ -227,7 +239,7 @@ def find_objects(uuid):
 def tear_down(objects, dry_run=False):
     print "Cleanup:"
 
-    for project in (objects[key] for key in objects.keys() if key.endswith("_project")):
+    for key, project in ((key, objects[key]) for key in objects.keys() if key.endswith("_project")):
         try:
             for evaluation in syn.getEvaluationByContentSource(project.id):
                 try:
@@ -236,6 +248,15 @@ def tear_down(objects, dry_run=False):
                         syn.restDELETE('/evaluation/%s' % evaluation.id)
                 except:
                     sys.stderr.write('Failed to clean up evaluation %s\n' % evaluation.id)
+
+            if key == "challenge_project":
+                try:
+                    challenge = syn.restGET('/entity/{id}/challenge'.format(id=project.id))
+                    print "  deleting challenge ", challenge['id']
+                    syn.restDELETE('/challenge/{id}'.format(id=challenge['id']))
+                except Exception as ex1:
+                    sys.stderr.write('Failed to clean up challenge object.\n')
+                    print str(ex1)
 
             print "  deleting", project.id
             if not dry_run:
@@ -278,15 +299,13 @@ def create_supertable_leaderboard(evaluation, leaderboard_columns):
     # Columns specifications have 4 fields: renderer, display name, column name, sort.
     # Renderer and sort are usually 'none' and 'NONE'.
     for i, column in enumerate(leaderboard_columns):
-        fields = dict(renderer='none', sort='NONE')
+        fields = {'renderer':'none', 'sort':'NONE'}
         fields.update(column)
-        params.append(('columnConfig%s' % i, "{renderer},{display_name},{column_name};,{sort}".format(**fields)))
+        if 'display_name' not in fields:
+            fields['display_name'] = fields['name']
+        params.append(('columnConfig%s' % i, "{renderer},{display_name},{name};,{sort}".format(**fields)))
 
     return "${supertable?path=" + uri_base + "%3F" + query + "&" + "&".join([key+"="+urllib.quote_plus(value) for key,value in params]) + "}"
-
-    # Notes: supertable fails w/ bizarre error when sorting by a floating point column.
-    #        can we format floating point "%0.4f"
-    #        supertable is really picky about what gets URL encoded.
 
 
 def create_wiki(evaluation, challenge_home_entity, team, leaderboard_columns):
@@ -352,25 +371,22 @@ def challenge_demo(number_of_submissions=NUM_OF_SUBMISSIONS_TO_CREATE, cleanup=T
         objects=set_up()
         evaluation=objects['evaluation']
 
-        # Write challenge config file, which is just an ordinary python
-        # script that can be manually edited later.
-        current_user = syn.getUserProfile()
-        write_config(
-            challenge_syn_id=objects['challenge_project'].id, 
-            challenge_name=CHALLENGE_PROJECT_NAME,
-            admin_user_ids=[current_user.ownerId],
-            evaluation_queues=[evaluation])
-
         ## import challenge *after* we write the config file
         ## 'cause challenge.py imports the config file
         import challenge
 
-        ## a dirty hack to share the same 
+        ## a dirty hack to share the same synapse connection object
         challenge.syn = syn
 
         # create leaderboard wiki page
         leaderboard_columns = challenge.conf.leaderboard_columns[evaluation.id]
         create_wiki(evaluation, objects['challenge_project'], objects['participants_team'], leaderboard_columns)
+
+        # create leaderboard table
+        schema = syn.store(Schema(name=evaluation.name, columns=challenge.to_column_objects(leaderboard_columns), parent=objects['challenge_project']))
+
+        # stash a reference to the table in the challenge config
+        challenge.conf.leaderboard_tables[evaluation.id] = schema.id
 
         # create submissions
         submit_to_challenge(evaluation, objects['participant_file'], n=number_of_submissions)
@@ -388,7 +404,7 @@ def challenge_demo(number_of_submissions=NUM_OF_SUBMISSIONS_TO_CREATE, cleanup=T
         # annotations for query is asynchronous. Wait a second to give it a
         # fighting chance of finishing.
         time.sleep(1)
-        challenge.query(evaluation, display_columns=leaderboard_columns)
+        challenge.query(evaluation, columns=leaderboard_columns)
 
     finally:
         if cleanup and "objects" in locals() and objects:
@@ -451,6 +467,10 @@ def main():
     if not args.password:
         args.password = os.environ.get('SYNAPSE_PASSWORD', None)
     syn.login(email=args.user, password=args.password)
+
+    ## initialize messages
+    messages.syn = syn
+
     args.func(args)
 
     print "\ndone: ", datetime.utcnow().isoformat()

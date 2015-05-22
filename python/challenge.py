@@ -23,6 +23,7 @@ from synapseclient import Activity
 from synapseclient import Project, Folder, File
 from synapseclient import Evaluation, Submission, SubmissionStatus
 from synapseclient import Wiki
+from synapseclient import Column
 from synapseclient.dict_object import DictObject
 from synapseclient.annotations import from_submission_status_annotations
 
@@ -52,6 +53,8 @@ except Exception as ex1:
     sys.stderr.write("\nPlease configure your challenge. See challenge_config.template.py for an example.\n\n")
     raise ex1
 
+import messages
+
 
 # the batch size can be bigger, we do this just to demonstrate batching
 BATCH_SIZE = 20
@@ -65,101 +68,13 @@ UUID_REGEX = re.compile('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 syn = None
 
 
-VALIDATION_FAILED_TEMPLATE = """\
-Hello {username},
-
-Sorry, but we were unable to validate your submission to the {queue_name}.
-
-Please refer to the challenge instructions which can be found at
-https://www.synapse.org/#!Synapse:syn2813558/wiki/209591 and to the error message below:
-
-submission name: {submission_name}
-submission ID: {submission_id}
-
-{message}
-
-If you have questions, please ask on the forums at http://support.sagebase.org/sagebase.
-
-Sincerely,
-
-the scoring script
-"""
-
-VALIDATION_PASSED_TEMPLATE = """\
-Hello {username},
-
-We have received your submission to the {queue_name} and confirmed that it is correctly formatted.
-
-submission name: {submission_name}
-submission ID: {submission_id}
-
-Scoring will begin on April 8th and you should receive another message at that time reporting how your submission scored.
-
-If you have questions, please ask on the forums at http://support.sagebase.org/sagebase or refer to the challenge instructions which can be found at https://www.synapse.org/#!Synapse:syn2813558/wiki/209591.
-
-Sincerely,
-
-the scoring script
-"""
-
-
-scoring_message_template = """\
-Hello {username},
-
-Your submission \"{submission_name}\" (ID: {submission_id}) to the {queue_name} has been scored:
-
-{message}
-
-If you have questions, please ask on the forums at http://support.sagebase.org/sagebase.
-
-Sincerely,
-
-the scoring script
-"""
-
-scoring_error_message_template = """\
-Hello {username},
-
-Sorry, but we were unable to process your submission to the {queue_name}.
-
-Please refer to the challenge instructions which can be found at
-https://www.synapse.org/#!Synapse:syn2813558/wiki/209591 and to the error message below:
-
-submission name: {submission_name}
-submission ID: {submission_id}
-
-{message}
-
-If you have questions, please ask on the forums at http://support.sagebase.org/sagebase.
-
-Sincerely,
-
-the scoring script
-"""
-
-error_notification_template = """\
-Hello Challenge Administrator,
-
-The scoring script for the """ + conf.CHALLENGE_NAME + """ encountered an error:
-
-{message}
-
-Sincerely,
-
-the scoring script
-"""
-
-
-
-## define the columns that will make up the leaderboard
-LEADERBOARD_COLUMNS = [
-    {'column_name':'objectId',          'display_name':'ID',     'type':str},
-    {'column_name':'userId',            'display_name':'user ID','type':str, 'renderer':'userid'},
-    {'column_name':'entityId',          'display_name':'entity', 'type':str, 'renderer':'synapseid'},
-    {'column_name':'versionNumber',     'display_name':'versionNumber','type':int},
-    {'column_name':'name',              'display_name':'name',   'type':str},
-    {'column_name':'team',              'display_name':'team',   'type':str}]
-
+def to_column_objects(leaderboard_columns):
+    """
+    Turns a list of dictionaries of column configuration information defined
+    in conf.leaderboard_columns) into a list of Column objects
+    """
+    column_keys = ['name', 'columnType', 'maximumSize', 'enumValues', 'defaultValue']
+    return [Column(**{ key: col[key] for key in column_keys if key in col}) for col in leaderboard_columns]
 
 
 def get_user_name(profile):
@@ -235,11 +150,7 @@ class Query(object):
         return values
 
 
-def validate(evaluation,
-             send_messages=False,
-             send_validation_passed_message=False,
-             notifications=False,
-             dry_run=False):
+def validate(evaluation, dry_run=False):
 
     if type(evaluation) != Evaluation:
         evaluation = syn.getEvaluation(evaluation)
@@ -268,55 +179,25 @@ def validate(evaluation,
             status = syn.store(status)
 
         ## send message AFTER storing status to ensure we don't get repeat messages
-        if not is_valid and send_messages:
-            profile = syn.getUserProfile(submission.userId)
-
-            message = VALIDATION_FAILED_TEMPLATE.format(
+        profile = syn.getUserProfile(submission.userId)
+        if is_valid:
+            messages.validation_passed(
+                userIds=[submission.userId],
+                username=get_user_name(profile),
+                queue_name=evaluation.name,
+                submission_id=submission.id,
+                submission_name=submission.name)
+        else:
+            messages.validation_failed(
+                userIds=[submission.userId],
                 username=get_user_name(profile),
                 queue_name=evaluation.name,
                 submission_id=submission.id,
                 submission_name=submission.name,
                 message=validation_message)
-            subject = "Validation error in submission to "+evaluation.name
-
-            if dry_run:
-                print "."*30
-                print "Dry Run, would have sent:", subject
-                print message
-            else:
-                response = syn.sendMessage(
-                    userIds=[submission.userId],
-                    messageSubject=subject,
-                    messageBody=message)
-                #print "sent validation error message: ", unicode(response).encode('utf-8')
-
-        if is_valid and send_validation_passed_message:
-            profile = syn.getUserProfile(submission.userId)
-
-            message = VALIDATION_PASSED_TEMPLATE.format(
-                username=get_user_name(profile),
-                queue_name=evaluation.name,
-                submission_id=submission.id,
-                submission_name=submission.name)
-            subject = "Submission received to "+evaluation.name
-
-            if dry_run:
-                print "."*30
-                print "Dry Run, would have sent:", subject
-                print message
-            else:
-                response = syn.sendMessage(
-                    userIds=[submission.userId],
-                    messageSubject=subject,
-                    messageBody=message)
-                #print "sent validation error message: ", unicode(response).encode('utf-8')
 
 
-def score(evaluation,
-          send_messages=False,
-          notifications=False,
-          leaderboard_table=None,
-          dry_run=False):
+def score(evaluation, dry_run=False):
 
     if type(evaluation) != Evaluation:
         evaluation = syn.getEvaluation(evaluation)
@@ -357,8 +238,9 @@ def score(evaluation,
             status.annotations = synapseclient.annotations.to_submission_status_annotations(score)
             status.status = "SCORED"
 
-            if leaderboard_table:
-                update_leaderboard_table(leaderboard_table, submission, fields=score, dry_run=False)
+            ## if there's a table configured, update it
+            if evaluation.id in conf.leaderboard_tables:
+                update_leaderboard_table(conf.leaderboard_tables[evaluation.id], submission, fields=score, dry_run=False)
 
         except Exception as ex1:
             sys.stderr.write('\n\nError scoring submission %s %s:\n' % (submission.name, submission.id))
@@ -368,57 +250,42 @@ def score(evaluation,
             sys.stderr.write('\n')
             message = st.getvalue()
 
-            if notifications and conf.ADMIN_USER_IDS:
+            if conf.ADMIN_USER_IDS:
                 submission_info = "submission id: %s\nsubmission name: %s\nsubmitted by user id: %s\n\n" % (submission.id, submission.name, submission.userId)
-                subject = "Exception while scoring" + evaluation.name
-                message = error_notification_template.format(message=submission_info+st.getvalue())
-                if dry_run:
-                    print "."*30
-                    print "Dry Run, notification:", subject
-                    print message
-                else:
-                    response = syn.sendMessage(
-                        userIds=conf.ADMIN_USER_IDS,
-                        messageSubject=subject,
-                        messageBody=message)
-                    print "sent notification: ", unicode(response).encode('utf-8')
+                messages.error_notification(userIds=conf.ADMIN_USER_IDS, message=submission_info+st.getvalue())
 
         if not dry_run:
             status = syn.store(status)
 
         ## send message AFTER storing status to ensure we don't get repeat messages
-        if send_messages:
-            profile = syn.getUserProfile(submission.userId)
+        profile = syn.getUserProfile(submission.userId)
 
-            if status.status == 'SCORED':
-                message_body = scoring_message_template.format(
-                    message=message,
-                    username=get_user_name(profile),
-                    queue_name=evaluation.name,
-                    submission_name=submission.name,
-                    submission_id=submission.id)
-                subject = "Submission to "+conf.CHALLENGE_NAME
-            else:
-                message_body = scoring_error_message_template.format(
-                    message=message,
-                    username=get_user_name(profile),
-                    queue_name=evaluation.name,
-                    submission_name=submission.name,
-                    submission_id=submission.id)
-                subject = "Error scoring submission to "+evaluation.name
-
-            if dry_run:
-                print "."*30
-                print "Dry Run, would have sent:", subject
-                print message_body
-            else:
-                response = syn.sendMessage(
-                    userIds=[submission.userId],
-                    messageSubject=subject,
-                    messageBody=message_body)
-                #print "sent message: ", unicode(response).encode('utf-8')
+        if status.status == 'SCORED':
+            messages.scoring_succeeded(
+                userIds=[submission.userId],
+                message=message,
+                username=get_user_name(profile),
+                queue_name=evaluation.name,
+                submission_name=submission.name,
+                submission_id=submission.id)
+        else:
+            messages.scoring_failed(
+                userIds=[submission.userId],
+                message=message,
+                username=get_user_name(profile),
+                queue_name=evaluation.name,
+                submission_name=submission.name,
+                submission_id=submission.id)
 
     sys.stdout.write('\n')
+
+
+def create_leaderboard_table(name, columns, parent, dry_run=False):
+    if not dry_run:
+        schema = syn.store(Schema(name=name, columns=cols, parent=project))
+    for submission, status in syn.getSubmissionBundles():
+        annotations = synapseclient.annotations.from_submission_status_annotations(status.annotations) if 'annotations' in status else {}
+        update_leaderboard_table(schema.id, submission, annotations, dry_run)
 
 
 def update_leaderboard_table(leaderboard_table, submission, fields, dry_run=False):
@@ -452,7 +319,7 @@ def update_leaderboard_table(leaderboard_table, submission, fields, dry_run=Fals
         raise RuntimeError("Multiple entries in leaderboard table %s for submission %s" % (leaderboard_table,submission.id))
 
     ## build list of fields in proper order according to headers
-    row['values'] = [fields[col['name']] for col in rowset['headers']]
+    row['values'] = [fields.get(col['name'], None) for col in rowset['headers']]
 
     if dry_run:
         print mode, "row "+row['rowId'] if 'rowId' in row else "new row", row['values']
@@ -460,7 +327,7 @@ def update_leaderboard_table(leaderboard_table, submission, fields, dry_run=Fals
         return syn.store(rowset)
 
 
-def query(evaluation, display_columns=LEADERBOARD_COLUMNS, out=sys.stdout):
+def query(evaluation, columns, out=sys.stdout):
     """Test the query that will be run to construct the leaderboard"""
 
     if type(evaluation) != Evaluation:
@@ -471,57 +338,26 @@ def query(evaluation, display_columns=LEADERBOARD_COLUMNS, out=sys.stdout):
     results = Query(query="select * from evaluation_%s where status==\"SCORED\"" % evaluation.id)
 
     ## annotate each column with it's position in the query results, if it's there
-    cols = copy.deepcopy(display_columns)
+    cols = copy.deepcopy(columns)
     for column in cols:
-        if column['column_name'] in results.headers:
-            column['index'] = results.headers.index(column['column_name'])
+        if column['name'] in results.headers:
+            column['index'] = results.headers.index(column['name'])
     indices = [column['index'] for column in cols if 'index' in column]
     column_index = {column['index']:column for column in cols if 'index' in column}
 
     def column_to_string(row, column_index, i):
-        if column_index[i]['type']==float:
+        if column_index[i]['columnType']=="DOUBLE":
             return "%0.6f"%float(row[i])
-        elif column_index[i]['type']==str:
+        elif column_index[i]['columnType']=="STRING":
             return "\"%s\""%unicode(row[i]).encode('utf-8')
         else:
             return unicode(row[i]).encode('utf-8')
 
     ## print leaderboard
-    out.write(",".join([column['display_name'] for column in cols if 'index' in column]) + "\n")
+    out.write(",".join([column['name'] for column in cols if 'index' in column]) + "\n")
     for row in results:
         out.write(",".join(column_to_string(row, column_index, i) for i in indices))
         out.write("\n")
-
-
-def create_supertable_leaderboard(evaluation):
-    """
-    Create the leaderboard using a supertable, a markdown extension that dynamically
-    builds a table by querying submissions. Because the supertable re-queries whenever
-    the page is rendered, this step only has to be done once.
-    """
-    uri_base = urllib.quote_plus("/evaluation/submission/query")
-    # it's incredibly picky that the equals sign here has to be urlencoded, but
-    # the later equals signs CAN'T be urlencoded.
-    query = urllib.quote_plus('query=select * from evaluation_%s where status=="SCORED"' % utils.id_of(evaluation))
-    params = [  ('paging', 'true'),
-                ('queryTableResults', 'true'),
-                ('showIfLoggedInOnly', 'false'),
-                ('pageSize', '25'),
-                ('showRowNumber', 'false'),
-                ('jsonResultsKeyName', 'rows')]
-
-    # Columns specifications have 4 fields: renderer, display name, column name, sort.
-    # Renderer and sort are usually 'none' and 'NONE'.
-    for i, column in enumerate(LEADERBOARD_COLUMNS):
-        fields = dict(renderer='none', sort='NONE')
-        fields.update(column)
-        params.append(('columnConfig%s' % i, "{renderer},{display_name},{column_name};,{sort}".format(**fields)))
-
-    return "${supertable?path=" + uri_base + "%3F" + query + "&" + "&".join([key+"="+urllib.quote_plus(value) for key,value in params]) + "}"
-
-    # Notes: supertable fails w/ bizarre error when sorting by a floating point column.
-    #        can we format floating point "%0.4f"
-    #        supertable is really picky about what gets URL encoded.
 
 
 def list_submissions(evaluation, status=None, **kwargs):
@@ -594,17 +430,9 @@ def command_reset(args):
 def command_validate(args):
     if args.all:
         for queue_info in conf.evaluation_queues:
-            validate(queue_info['id'],
-                     send_messages=args.send_messages,
-                     send_validation_passed_message=args.send_validation_passed_message,
-                     notifications=args.notifications,
-                     dry_run=args.dry_run)
+            validate(queue_info['id'], dry_run=args.dry_run)
     elif args.evaluation:
-        validate(args.evaluation,
-             send_messages=args.send_messages,
-             send_validation_passed_message=args.send_validation_passed_message,
-             notifications=args.notifications,
-             dry_run=args.dry_run)
+        validate(args.evaluation, dry_run=args.dry_run)
     else:
         sys.stderr.write("\nValidate command requires either an evaluation ID or --all to validate all queues in the challenge")
 
@@ -612,18 +440,9 @@ def command_validate(args):
 def command_score(args):
     if args.all:
         for queue_info in conf.evaluation_queues:
-            score(queue_info['id'],
-                  send_messages=args.send_messages,
-                  notifications=args.notifications,
-                  leaderboard_table=queue_info['leaderboard_table'],
-                  dry_run=args.dry_run)
+            score(queue_info['id'], dry_run=args.dry_run)
     elif args.evaluation:
-        queue_info = conf.evaluation_queue_by_id[args.evaluation]
-        score(args.evaluation,
-          send_messages=args.send_messages,
-          notifications=args.notifications,
-          leaderboard_table=queue_info['leaderboard_table'],
-          dry_run=args.dry_run)
+        score(args.evaluation, dry_run=args.dry_run)
     else:
         sys.stderr.write("\Score command requires either an evaluation ID or --all to score all queues in the challenge")
 
@@ -634,18 +453,15 @@ def command_rank(args):
 
 def command_leaderboard(args):
     ## show columns specific to an evaluation, if available
-    if args.evaluation in conf.leaderboard_columns:
-        leaderboard_cols = conf.leaderboard_columns[args.evaluation]
-    else:
-        leaderboard_cols = LEADERBOARD_COLUMNS
+    leaderboard_cols = conf.leaderboard_columns.get(args.evaluation, conf.LEADERBOARD_COLUMNS)
 
     ## write out to file if --out args given
     if args.out is not None:
         with open(args.out, 'w') as f:
-            query(args.evaluation, display_columns=leaderboard_cols, out=f)
+            query(args.evaluation, columns=leaderboard_cols, out=f)
         print "Wrote leaderboard out to:", args.out
     else:
-        query(args.evaluation, display_columns=leaderboard_cols)
+        query(args.evaluation, columns=leaderboard_cols)
 
 
 
@@ -665,7 +481,8 @@ def main():
     parser.add_argument("-u", "--user", help="UserName", default=None)
     parser.add_argument("-p", "--password", help="Password", default=None)
     parser.add_argument("--notifications", help="Send error notifications to challenge admins", action="store_true", default=False)
-    parser.add_argument("--send-messages", help="Send error confirmation and validation errors to participants", action="store_true", default=False)
+    parser.add_argument("--send-messages", help="Send validation and scoring messages to participants", action="store_true", default=False)
+    parser.add_argument("--acknowledge-receipt", help="Send confirmation message on passing validation to participants", action="store_true", default=False)
     parser.add_argument("--dry-run", help="Perform the requested command without updating anything in Synapse", action="store_true", default=False)
     parser.add_argument("--debug", help="Show verbose error output from Synapse API calls", action="store_true", default=False)
 
@@ -691,7 +508,6 @@ def main():
     parser_validate = subparsers.add_parser('validate', help="Validate all RECEIVED submissions to an evaluation")
     parser_validate.add_argument("evaluation", metavar="EVALUATION-ID", nargs='?', default=None, )
     parser_validate.add_argument("--all", action="store_true", default=False)
-    parser_validate.add_argument("--send-validation-passed-message", help="Send confirmation email to participants when a submission passes validation", action="store_true", default=False)
     parser_validate.set_defaults(func=command_validate)
 
     parser_score = subparsers.add_parser('score', help="Score all VALIDATED submissions to an evaluation")
@@ -729,6 +545,14 @@ def main():
         if not args.password:
             args.password = os.environ.get('SYNAPSE_PASSWORD', None)
         syn.login(email=args.user, password=args.password)
+
+        ## initialize messages
+        messages.syn = syn
+        messages.dry_run = args.dry_run
+        messages.send_messages = args.send_messages
+        messages.send_notifications = args.notifications
+        messages.acknowledge_receipt = args.acknowledge_receipt
+
         args.func(args)
 
     except Exception as ex1:
@@ -738,17 +562,8 @@ def main():
         sys.stderr.write(st.getvalue())
         sys.stderr.write('\n')
 
-        if args.notifications:
-            message = error_notification_template.format(message=st.getvalue())
-            if args.dry_run:
-                print "Dry Run: error notification:", "Exception while scoring " + conf.CHALLENGE_NAME
-                print message
-            else:
-                response = syn.sendMessage(
-                    userIds=conf.ADMIN_USER_IDS,
-                    messageSubject="Exception while scoring " + conf.CHALLENGE_NAME,
-                    messageBody=message)
-                print "sent notification: ", unicode(response).encode('utf-8')
+        if conf.ADMIN_USER_IDS:
+            messages.error_notification(userIds=conf.ADMIN_USER_IDS, message=st.getvalue(), queue_name=conf.CHALLENGE_NAME)
 
     finally:
         update_lock.release()

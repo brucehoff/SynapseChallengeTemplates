@@ -3,7 +3,6 @@
 ## challenge specific code and configuration
 ##
 ##-----------------------------------------------------------------------------
-import random
 
 
 ## A Synapse project will hold the assetts for your challenge. Put its
@@ -33,22 +32,28 @@ ADMIN_USER_IDS = []
 evaluation_queues = []
 evaluation_queue_by_id = {q['id']:q for q in evaluation_queues}
 
-## Tables can be created to represent leader boards. Here we're adding
-## columns for score, rmse and auc to the basic info for a submission
-## which corresponds to the output of our scoring function below.
+## define the default set of columns that will make up the leaderboard
+LEADERBOARD_COLUMNS = [
+    dict(name='objectId',      display_name='ID',      columnType='STRING', maximumSize=20),
+    dict(name='userId',        display_name='User',    columnType='STRING', maximumSize=20, renderer='userid'),
+    dict(name='entityId',      display_name='Entity',  columnType='STRING', maximumSize=20, renderer='synapseid'),
+    dict(name='versionNumber', display_name='Version', columnType='INTEGER'),
+    dict(name='name',          display_name='Name',    columnType='STRING', maximumSize=240),
+    dict(name='team',          display_name='Team',    columnType='STRING', maximumSize=240)]
+
+## Here we're adding columns for the output of our scoring functions, score,
+## rmse and auc to the basic leaderboard information. In general, different
+## questions would typically have different scoring metrics.
 leaderboard_columns = {}
 for q in evaluation_queues:
-    leaderboard_columns[q['id']] = [
-        {'column_name':'objectId',          'display_name':'ID',     'type':str},
-        {'column_name':'userId',            'display_name':'user ID','type':str, 'renderer':'userid'},
-        {'column_name':'entityId',          'display_name':'entity', 'type':str, 'renderer':'synapseid'},
-        {'column_name':'versionNumber',     'display_name':'version','type':int},
-        {'column_name':'name',              'display_name':'name',   'type':str},
-        {'column_name':'team',              'display_name':'team',   'type':str},
-        {'column_name':'score',             'display_name':'score',  'type':float},
-        {'column_name':'rmse',              'display_name':'rmse',   'type':float},
-        {'column_name':'auc',               'display_name':'auc',    'type':float}]
+    leaderboard_columns[q['id']] = LEADERBOARD_COLUMNS + [
+        dict(name='score',         display_name='Score',   columnType='DOUBLE'),
+        dict(name='rmse',          display_name='RMSE',    columnType='DOUBLE'),
+        dict(name='auc',           display_name='AUC',     columnType='DOUBLE')]
 
+## map each evaluation queues to the synapse ID of a table object
+## where the table holds a leaderboard for that question
+leaderboard_tables = {}
 
 
 def validate_submission(evaluation, submission):
@@ -68,7 +73,7 @@ def score_submission(evaluation, submission):
     :returns: (score, message) where score is a dict of stats and message
               is text for display to user
     """
-    return (
-        dict(score=random.random(), rmse=random.random(), auc=random.random()),
-        "Your submission has been scored!")
+    import random
+    return (dict(score=random.random(), rmse=random.random(), auc=random.random()), "You did fine!")
+
 
