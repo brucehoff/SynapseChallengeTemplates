@@ -81,7 +81,8 @@ ${{evalsubmit?subchallengeIdList={evalId}&unavailableMessage=Join the team to su
 ## Help
 Link to [forum](http://support.sagebase.org/sagebase) where all questions about the Challenge should be posted.
 
-For more information see [Creating a Challenge Space in Synapse](#!Synapse:syn2453886/wiki/).
+For more information on creating a challenge see [Creating a Challenge Space in Synapse](#!Synapse:syn2453886/wiki/)
+and the [DREAM Challenge Wiki Template](#!Synapse:syn2769515/wiki/).
 
 This project was created by code in the Python edition of the [Synapse Challenge Templates](https://github.com/Sage-Bionetworks/SynapseChallengeTemplates).
 """
