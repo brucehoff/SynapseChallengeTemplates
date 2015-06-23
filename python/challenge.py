@@ -378,7 +378,7 @@ def list_evaluations(project):
         print "Evaluation: %s" % evaluation.id, evaluation.name.encode('utf-8')
 
 
-def archive(evaluation, destination=None, query=None):
+def archive(evaluation, destination=None, name=None, query=None):
     """
     Archive the submissions for the given evaluation queue and store them in the destination synapse folder.
 
@@ -395,14 +395,16 @@ def archive(evaluation, destination=None, query=None):
 
     ## for each submission, download it's associated file and write a line of metadata
     results = Query(query=query)
-    id_column_index = results.headers.index('objectId')
-    tar_path = os.path.join(tempdir, 'submissions_%s.tgz' % utils.id_of(evaluation))
+    if not name:
+        name = 'submissions_%s.tgz' % utils.id_of(evaluation)
+    tar_path = os.path.join(tempdir, name)
     print "creating tar at:", tar_path
+    print results.headers
     with tarfile.open(tar_path, mode='w:gz') as archive:
         with open(os.path.join(tempdir, 'submission_metadata.csv'), 'w') as f:
             for result in results:
                 ## retrieve file into cache and copy it to destination
-                submission = syn.getSubmission(result[id_column_index])
+                submission = syn.getSubmission(result[results.headers.index('objectId')])
                 archive.add(submission.filePath, arcname=os.path.join(archive_dirname, submission.id + "_" + os.path.basename(submission.filePath)))
                 line = (','.join(unicode(item) for item in result)).encode('utf-8')
                 print line
@@ -502,7 +504,7 @@ def command_leaderboard(args):
 
 
 def command_archive(args):
-    archive(args.evaluation, args.destination, args.query)
+    archive(args.evaluation, args.destination, name=args.name, query=args.query)
 
 
 ## ==================================================
@@ -563,6 +565,7 @@ def main():
     parser_archive.add_argument("evaluation", metavar="EVALUATION-ID", default=None)
     parser_archive.add_argument("destination", metavar="FOLDER-ID", default=None)
     parser_archive.add_argument("-q", "--query", default=None)
+    parser_archive.add_argument("-n", "--name", default=None)
     parser_archive.set_defaults(func=command_archive)
 
     parser_leaderboard = subparsers.add_parser('leaderboard', help="Print the leaderboard for an evaluation")
