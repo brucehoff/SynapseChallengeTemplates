@@ -173,6 +173,8 @@ def validate(evaluation, dry_run=False):
             is_valid, validation_message = conf.validate_submission(evaluation, submission)
         except Exception as ex1:
             is_valid = False
+            print "Exception during validation:", type(ex1), ex1, ex1.message
+            traceback.print_exc()
             validation_message = str(ex1)
 
         status.status = "VALIDATED" if is_valid else "INVALID"
