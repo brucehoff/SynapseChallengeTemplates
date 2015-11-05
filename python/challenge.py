@@ -1,5 +1,5 @@
 #
-# Executable template for Challenge scoring application
+# Command line tool for scoring and managing Synapse challenges
 #
 # To use this script, first install the Synapse Python Client
 # http://python-docs.synapse.org/
@@ -41,6 +41,8 @@ import os
 import random
 import re
 import sys
+import tarfile
+import tempfile
 import time
 import traceback
 import urllib
@@ -171,6 +173,8 @@ def validate(evaluation, dry_run=False):
             is_valid, validation_message = conf.validate_submission(evaluation, submission)
         except Exception as ex1:
             is_valid = False
+            print "Exception during validation:", type(ex1), ex1, ex1.message
+            traceback.print_exc()
             validation_message = str(ex1)
 
         status.status = "VALIDATED" if is_valid else "INVALID"
@@ -277,10 +281,10 @@ def score(evaluation, dry_run=False):
     sys.stdout.write('\n')
 
 
-def create_leaderboard_table(name, columns, parent, dry_run=False):
+def create_leaderboard_table(name, columns, parent, evaluation, dry_run=False):
     if not dry_run:
         schema = syn.store(Schema(name=name, columns=cols, parent=project))
-    for submission, status in syn.getSubmissionBundles():
+    for submission, status in syn.getSubmissionBundles(evaluation):
         annotations = synapseclient.annotations.from_submission_status_annotations(status.annotations) if 'annotations' in status else {}
         update_leaderboard_table(schema.id, submission, annotations, dry_run)
 
@@ -376,6 +380,50 @@ def list_evaluations(project):
         print "Evaluation: %s" % evaluation.id, evaluation.name.encode('utf-8')
 
 
+def archive(evaluation, destination=None, name=None, query=None):
+    """
+    Archive the submissions for the given evaluation queue and store them in the destination synapse folder.
+
+    :param evaluation: a synapse evaluation queue or its ID
+    :param destination: a synapse folder or its ID
+    :param query: a query that will return the desired submissions. At least the ID must be returned.
+                  defaults to _select * from evaluation_[EVAL_ID] where status=="SCORED"_.
+    """
+    tempdir = tempfile.mkdtemp()
+    archive_dirname = 'submissions_%s' % utils.id_of(evaluation)
+
+    if not query:
+        query = 'select * from evaluation_%s where status=="SCORED"' % utils.id_of(evaluation)
+
+    ## for each submission, download it's associated file and write a line of metadata
+    results = Query(query=query)
+    if 'objectId' not in results.headers:
+        raise ValueError("Can't find the required field \"objectId\" in the results of the query: \"{0}\"".format(query))
+    if not name:
+        name = 'submissions_%s.tgz' % utils.id_of(evaluation)
+    tar_path = os.path.join(tempdir, name)
+    print "creating tar at:", tar_path
+    print results.headers
+    with tarfile.open(tar_path, mode='w:gz') as archive:
+        with open(os.path.join(tempdir, 'submission_metadata.csv'), 'w') as f:
+            f.write( (','.join(hdr for hdr in (results.headers + ['filename'])) + '\n').encode('utf-8') )
+            for result in results:
+                ## retrieve file into cache and copy it to destination
+                submission = syn.getSubmission(result[results.headers.index('objectId')])
+                prefixed_filename = submission.id + "_" + os.path.basename(submission.filePath)
+                archive.add(submission.filePath, arcname=os.path.join(archive_dirname, prefixed_filename))
+                line = (','.join(unicode(item) for item in (result+[prefixed_filename]))).encode('utf-8')
+                print line
+                f.write(line + '\n')
+        archive.add(
+            name=os.path.join(tempdir, 'submission_metadata.csv'),
+            arcname=os.path.join(archive_dirname, 'submission_metadata.csv'))
+
+    entity = syn.store(File(tar_path, parent=destination), evaluation_id=utils.id_of(evaluation))
+    print "created:", entity.id, entity.name
+    return entity.id
+
+
 ## ==================================================
 ##  Handlers for commands
 ## ==================================================
@@ -461,6 +509,9 @@ def command_leaderboard(args):
         query(args.evaluation, columns=leaderboard_cols)
 
 
+def command_archive(args):
+    archive(args.evaluation, args.destination, name=args.name, query=args.query)
+
 
 ## ==================================================
 ##  main method
@@ -515,6 +566,13 @@ def main():
     parser_rank = subparsers.add_parser('rank', help="Rank all SCORED submissions to an evaluation")
     parser_rank.add_argument("evaluation", metavar="EVALUATION-ID", default=None)
     parser_rank.set_defaults(func=command_rank)
+
+    parser_archive = subparsers.add_parser('archive', help="Archive submissions to a challenge")
+    parser_archive.add_argument("evaluation", metavar="EVALUATION-ID", default=None)
+    parser_archive.add_argument("destination", metavar="FOLDER-ID", default=None)
+    parser_archive.add_argument("-q", "--query", default=None)
+    parser_archive.add_argument("-n", "--name", default=None)
+    parser_archive.set_defaults(func=command_archive)
 
     parser_leaderboard = subparsers.add_parser('leaderboard', help="Print the leaderboard for an evaluation")
     parser_leaderboard.add_argument("evaluation", metavar="EVALUATION-ID", default=None)

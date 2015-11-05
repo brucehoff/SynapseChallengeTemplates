@@ -4,7 +4,47 @@
 # Author: chris.bare
 #
 ###############################################################################
+"""
+Demonstrates the challenge-related functionality of the Synapse platform.
 
+For example, at the command line, invoke the demo without cleanup::
+
+    python challenge_demo.py demo --no-cleanup
+
+The script creates a Challenge home page project, a queue for incoming submissions,
+teams for organizers and participants and a team to make submissions. Next it makes
+a few submissions to the challenge and scores them.
+
+You should see output similar to the following::
+
+    2015-10-13T23:01:54.339854
+    Welcome, Synapse User!
+    Created project syn4987434 Example Synapse Challenge 0a9aa547-cd9c-469f-b2f9-83f25ee575a4
+    Created Evaluation 4987435 Example Synapse Challenge 0a9aa547-cd9c-469f-b2f9-83f25ee575a4
+    Created team 3332096 Example Synapse Challenge 0a9aa547-cd9c-469f-b2f9-83f25ee575a4 Participants
+    Created team 3332097 Example Synapse Challenge 0a9aa547-cd9c-469f-b2f9-83f25ee575a4 Administrators
+    Created project syn4987438 Example Challenge Participant Project 0a9aa547-cd9c-469f-b2f9-83f25ee575a4
+
+    ##################################################
+     Uploading file to Synapse storage
+    ##################################################
+    Uploaded Chunks [####################]100.00%     1.6kB/1.6kB /var/folders/_g/m7ghw2z944qc5jg_df2tj2ph0000gn/T/tmpQLvvnI.txt Done...
+    Upload completed in 3 seconds.
+    Your submission has been received. For further information, consult the leader board at https://...
+    Your submission has been received. For further information, consult the leader board at https://...
+    Your submission has been received. For further information, consult the leader board at https://...
+    Your submission has been received. For further information, consult the leader board at https://...
+    Your submission has been received. For further information, consult the leader board at https://...
+
+You can navigate to the challenge project (syn4987434 in the example above) and inspect the leaderboard
+and the other artifacts.
+
+When you're finished, you can delete the artifacts created above by pasting the UUID in the items above
+into the cleanup command::
+
+    python challenge_demo.py cleanup 0a9aa547-cd9c-469f-b2f9-83f25ee575a4
+
+"""
 
 import synapseclient
 import synapseclient.utils as utils
@@ -12,6 +52,7 @@ from synapseclient.exceptions import *
 from synapseclient import Activity
 from synapseclient import Project, Folder, File
 from synapseclient import Evaluation, Submission, SubmissionStatus
+from synapseclient import Team
 from synapseclient import Wiki, Schema
 from synapseclient.dict_object import DictObject
 
@@ -81,7 +122,8 @@ ${{evalsubmit?subchallengeIdList={evalId}&unavailableMessage=Join the team to su
 ## Help
 Link to [forum](http://support.sagebase.org/sagebase) where all questions about the Challenge should be posted.
 
-For more information see [Creating a Challenge Space in Synapse](#!Synapse:syn2453886/wiki/).
+For more information on creating a challenge see [Creating a Challenge Space in Synapse](#!Synapse:syn2453886/wiki/)
+and the [DREAM Challenge Wiki Template](#!Synapse:syn2769515/wiki/).
 
 This project was created by code in the Python edition of the [Synapse Challenge Templates](https://github.com/Sage-Bionetworks/SynapseChallengeTemplates).
 """
@@ -122,14 +164,9 @@ def update_submissions_status_batch(evaluation, statuses):
                 raise
 
 
-class Team(DictObject):
-    def __init__(self, **kwargs):
-        super(Team, self).__init__(kwargs)
-
 
 def create_team(name, description):
-    team = {'name': name, 'description': description, 'canPublicJoin':True}
-    return Team(**syn.restPOST("/team", body=json.dumps(team)))
+    return syn.store(Team(name=name, description=description, canPublicJoin=True))
 
 
 def create_challenge_object(project, participants_team):
@@ -151,14 +188,18 @@ def set_up():
             contentSource=challenge_project.id,
             status="OPEN",
             submissionInstructionsMessage="To submit to the XYZ Challenge, send a tab-delimited file as described here: https://...",
-            submissionReceiptMessage="Your submission has been received. For further information, consult the leader board at https://..."))
+            submissionReceiptMessage="Your submission has been received. For further information, consult the leader board at https://..."),
+            quota=dict(numberOfRounds=1,
+                       roundDurationMillis=1000*60*60*48, ## 48 hours
+                       submissionLimit=20,
+                       firstRoundStart=datetime.now().strftime(synapseclient.utils.ISO_FORMAT)))
         print "Created Evaluation %s %s" % (evaluation.id, evaluation.name)
 
         # Create teams for participants and administrators
-        participants_team = create_team(CHALLENGE_PROJECT_NAME+uuid_suffix+' Participants', description='A team for people who have joined the challenge')
+        participants_team = syn.store(Team(name=CHALLENGE_PROJECT_NAME+uuid_suffix+' Participants', description='A team for people who have joined the challenge'))
         print "Created team %s %s" % (participants_team.id, participants_team.name)
 
-        admin_team = create_team(CHALLENGE_PROJECT_NAME+uuid_suffix+' Administrators', description='A team for challenge administrators')
+        admin_team = syn.store(Team(name=CHALLENGE_PROJECT_NAME+uuid_suffix+' Administrators', description='A team for challenge administrators'))
         print "Created team %s %s" % (admin_team.id, admin_team.name)
 
         # give the teams permissions on challenge artifacts
@@ -170,7 +211,14 @@ def set_up():
         syn.setPermissions(evaluation, participants_team.id, ['CREATE', 'READ', 'UPDATE', 'PARTICIPATE', 'SUBMIT', 'READ_PRIVATE_SUBMISSION'])
         ## the challenge object associates the challenge project with the
         ## participants team
-        create_challenge_object(challenge_project, participants_team)
+        challenge_object = create_challenge_object(challenge_project, participants_team)
+
+        # create a team that will make submissions
+        my_team = syn.store(Team(name="My team"+uuid_suffix, description='A team to make submissions'))
+
+        # register team with challenge
+        request_body = {'teamId':my_team.id, 'challengeId':challenge_object.id}
+        syn.restPOST('/challenge/{challengeId}/challengeTeam'.format(challengeId=challenge_object.id), json.dumps(request_body))
 
         # Create the participant project
         participant_project = syn.store(Project(name=PARTICIPANT_PROJECT_NAME+uuid_suffix))
@@ -188,11 +236,14 @@ def set_up():
             evaluation_queues=[evaluation])
 
         return dict(challenge_project=challenge_project,
+                    challenge_object=challenge_object,
                     evaluation=evaluation,
                     participant_project=participant_project,
                     participant_file=participant_file,
                     participants_team=participants_team,
-                    admin_team=admin_team)
+                    admin_team=admin_team,
+                    my_team=my_team,
+                    uuid_suffix=uuid_suffix)
 
     except Exception as ex:
         tear_down(locals())
@@ -223,6 +274,12 @@ def find_objects(uuid):
     else:
         warnings.warn("Couldn't find team: %s" % (CHALLENGE_PROJECT_NAME+" "+uuid+" Administrators"))
 
+    response = syn.restGET("/teams?fragment=" + urllib.quote("My team "+uuid))
+    if len(response['results']) > 0:
+        found_objects['my_team'] = Team(**response['results'][0])
+    else:
+        warnings.warn("Couldn't find team: %s" % ("My team "+uuid))
+
     return found_objects
 
 
@@ -248,7 +305,7 @@ def tear_down(objects, dry_run=False):
                     sys.stderr.write('Failed to clean up challenge object.\n')
                     print str(ex1)
 
-            print "  deleting", project.id
+            print "  deleting", project.name, project.id
             if not dry_run:
                 syn.delete(project)
         except Exception as ex1:
@@ -256,17 +313,17 @@ def tear_down(objects, dry_run=False):
             sys.stderr.write('Failed to clean up project: %s\n' % str(project))
 
     for team in (objects[key] for key in objects.keys() if key.endswith("_team")):
-        print 'deleting', team['id'], team['name']
+        print 'deleting team', team['id'], team['name']
         if not dry_run:
             syn.restDELETE('/team/{id}'.format(id=team['id']))
 
 
-def submit_to_challenge(evaluation, participant_file, n=NUM_OF_SUBMISSIONS_TO_CREATE):
+def submit_to_challenge(evaluation, participant_file, team=None, n=NUM_OF_SUBMISSIONS_TO_CREATE):
     for i in range(n):
         syn.submit(evaluation=evaluation,
                    entity=participant_file,
                    name="Awesome submission %d" % i,
-                   teamName="Team Awesome")
+                   team=team)
 
 
 def create_supertable_leaderboard(evaluation, leaderboard_columns):
@@ -378,8 +435,8 @@ def challenge_demo(number_of_submissions=NUM_OF_SUBMISSIONS_TO_CREATE, cleanup=T
         # stash a reference to the table in the challenge config
         challenge.conf.leaderboard_tables[evaluation.id] = schema.id
 
-        # create submissions
-        submit_to_challenge(evaluation, objects['participant_file'], n=number_of_submissions)
+        # create submissions on behalf of a team
+        submit_to_challenge(evaluation, objects['participant_file'], team=objects['my_team'], n=number_of_submissions)
 
         # validate correctness
         # (this can be done at the same time as scoring, below, but we
@@ -412,8 +469,6 @@ def command_setup(args):
 def command_cleanup(args):
     objs = find_objects(args.uuid)
     print "\nCleaning up:", args.uuid
-    for key,obj in objs.iteritems():
-        print key,obj['name'],obj['id']
     tear_down(objs, dry_run=args.dry_run)
 
 
