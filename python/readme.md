@@ -70,7 +70,7 @@ Paste this into the configuration file:
 	*/10 * * * * sh challenge_eval.sh>>~/challenge_runtimes.log
 	5 5 * * * sh scorelog_update.sh>>~/change_score.log
 
-Note: the first 5 * stand for minute (m), hour (h), day of month (dom), and month (mon). To have a job be done every ten minutes it would look something like */10 * * * * ...
+Note: the first 5 * stand for minute (m), hour (h), day of month (dom), and month (mon). The configuration to have a job be done every ten minutes would look something like */10 * * * *
 
 ### RPy2
 Often it's more convenient to write statistical code in R. We've successfully used the [Rpy2](http://rpy.sourceforge.net/) library to pass file paths to scoring functions written in R and get back a named list of scoring statistics. Alternatively, there's R code included in the R folder of this repo to fully run a challenge in R.
