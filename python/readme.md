@@ -61,7 +61,7 @@ names. Use the UUID to delete the example and clean up associated resources:
 ### RPy2
 Often it's more convenient to write statistical code in R. We've successfully used the [Rpy2](http://rpy.sourceforge.net/) library to pass file paths to scoring functions written in R and get back a named list of scoring statistics. Alternatively, there's R code included in the R folder of this repo to fully run a challenge in R.
 
-## Setting up automatic validation and scoring on an EC2
+## Setting Up Automatic Validation and Scoring on an EC2
 
 Make sure challenge_config.py is set up properly and all the files in this repository are in one directory on the EC2.  Crontab is used to help run the validation and scoring command automatically.  To set up crontab, first open the crontab configuration file:
 
