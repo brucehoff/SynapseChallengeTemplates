@@ -236,7 +236,7 @@ def score(evaluation, dry_run=False):
             else:
                 score['team'] = '?'
 
-            status.annotations = synapseclient.annotations.to_submission_status_annotations(score,is_private=False)
+            status.annotations = synapseclient.annotations.to_submission_status_annotations(score,is_private=True)
             status.status = "SCORED"
             ## if there's a table configured, update it
             if not dry_run and evaluation.id in conf.leaderboard_tables:
