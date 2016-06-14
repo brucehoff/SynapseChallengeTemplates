@@ -269,7 +269,7 @@ def score(evaluation, dry_run=False):
                 submission_name=submission.name,
                 submission_id=submission.id)
         else:
-            messages.scoring_failed(
+            messages.scoring_error(
                 userIds=[submission.userId],
                 message=message,
                 username=get_user_name(profile),
