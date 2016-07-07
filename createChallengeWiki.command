@@ -34,3 +34,4 @@ echo "Synapse Challenge Page you want to create: "
 read input_variable
 python temp.py $input_variable
 echo "Created template"
+synapse onweb $input_variable
