@@ -6,10 +6,10 @@ else
     echo "synapseclient does not exist"
     echo "Install syanpseclient? (y/n)" 
     read install
-    if [$install = 'y']; then 
+    if [ $install = 'y' ]; then 
         echo "Installing synapseclient" 
         sudo easy_install pip
-        pip install git+https://github.com/Sage-Bionetworks/synapsePythonClient.git@develop
+        sudo pip install git+https://github.com/thomasyu888/synapsePythonClient.git@develop
     else 
         echo "You cannot run this program, because the synapseclient is not installed.  Please go here to learn how to install the develop version of synapseclient. (https://github.com/Sage-Bionetworks/synapsePythonClient#install-develop-branch)"
         exit
