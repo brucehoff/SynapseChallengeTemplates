@@ -26,89 +26,92 @@ defaults = dict(
 
 validation_failed_subject_template = "Validation error in submission to {queue_name}"
 validation_failed_template = """\
-Hello {username},
+<p>Hello {username},</p>
 
-Sorry, but we were unable to validate your submission to the {queue_name}.
+<p>Sorry, but we were unable to validate your submission to the {queue_name}.</p>
 
-Please refer to the challenge instructions which can be found at \
-{challenge_instructions_url} and to the error message below:
+<p>Please refer to the challenge instructions which can be found at \
+{challenge_instructions_url} and to the error message below:</p>
 
-submission name: {submission_name}
-submission ID: {submission_id}
+<p>submission name: <b>{submission_name}</b><br>
+submission ID: <b>{submission_id}</b></p>
 
+<blockquote><pre>
 {message}
+</pre></blockquote>
 
-If you have questions, please ask on the forums at {support_forum_url}.
+<p>If you have questions, please ask on the forums at {support_forum_url}.</p>
 
-Sincerely,
-
-the scoring script
+<p>Sincerely,<br>
+the scoring script</p>
 """
 
 validation_passed_subject_template = "Submission received to {queue_name}"
 validation_passed_template = """\
-Hello {username},
+<p>Hello {username},</p>
 
-We have received your submission to the {queue_name} and confirmed that it is correctly formatted.
+<p>We have received your submission to the {queue_name} and confirmed that it is correctly formatted.</p>
 
-submission name: {submission_name}
-submission ID: {submission_id}
+<p>submission name: <b>{submission_name}</b><br>
+submission ID: <b>{submission_id}</b></p>
 
-If you have questions, please ask on the forums at {support_forum_url} or refer to the challenge \
-instructions which can be found at {challenge_instructions_url}.
+<p>If you have questions, please ask on the forums at {support_forum_url} or refer to the challenge \
+instructions which can be found at {challenge_instructions_url}.</p>
 
-Sincerely,
-
-the scoring script
+<p>Sincerely,<br>
+the scoring script</p>
 """
 
 scoring_succeeded_subject_template = "Scored submission to {queue_name}"
 scoring_succeeded_template = """\
-Hello {username},
+<p>Hello {username},</p>
 
-Your submission \"{submission_name}\" (ID: {submission_id}) to the {queue_name} has been scored:
+<p>Your submission \"{submission_name}\" (ID: {submission_id}) to the {queue_name} has been scored:</p>
 
+<blockquote><pre>
 {message}
+</pre></blockquote>
 
-If you have questions, please ask on the forums at {support_forum_url}.
+<p>If you have questions, please ask on the forums at {support_forum_url}.</p>
 
-Sincerely,
-
-the scoring script
+<p>Sincerely,<br>
+the scoring script</p>
 """
 
 scoring_error_subject_template = "Exception while scoring submission to {queue_name}"
 scoring_error_template = """\
-Hello {username},
+<p>Hello {username},</p>
 
-Sorry, but we were unable to process your submission to the {queue_name}.
+<p>Sorry, but we were unable to process your submission to the {queue_name}.</p>
 
-Please refer to the challenge instructions which can be found at \
-{challenge_instructions_url} and to the error message below:
+<p>Please refer to the challenge instructions which can be found at \
+{challenge_instructions_url} and to the error message below:</p>
 
-submission name: {submission_name}
-submission ID: {submission_id}
+<p>submission name: <b>{submission_name}</b><br>
+submission ID: <b>{submission_id}</b></p>
 
+<blockquote><pre>
 {message}
+</pre></blockquote>
 
-If you have questions, please ask on the forums at {support_forum_url}.
+<p>If you have questions, please ask on the forums at {support_forum_url}.</p>
 
-Sincerely,
-
-the scoring script
+<p>Sincerely,<br>
+the scoring script</p>
 """
 
 notification_subject_template = "Exception while scoring submission to {queue_name}"
 error_notification_template = """\
-Hello Challenge Administrator,
+<p>Hello Challenge Administrator,</p>
 
-The scoring script for {queue_name} encountered an error:
+<p>The scoring script for {queue_name} encountered an error:</p>
 
+<blockquote><pre>
 {message}
+</pre></blockquote>
 
-Sincerely,
-
-the scoring script
+<p>Sincerely,<br>
+the scoring script</p>
 """
 
 
@@ -171,7 +174,6 @@ def error_notification(userIds, **kwargs):
                             kwargs=kwargs)
 
 def send_message(userIds, subject_template, message_template, kwargs):
-    print kwargs
     subject = formatter.format(subject_template, **kwargs)
     message = formatter.format(message_template, **kwargs)
     if dry_run:
@@ -184,7 +186,8 @@ def send_message(userIds, subject_template, message_template, kwargs):
         response = syn.sendMessage(
             userIds=userIds,
             messageSubject=subject,
-            messageBody=message)
+            messageBody=message,
+            contentType="text/html")
         print "sent: ", unicode(response).encode('utf-8')
         return response
     else:
