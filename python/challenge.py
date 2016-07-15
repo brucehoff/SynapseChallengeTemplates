@@ -464,11 +464,21 @@ def command_reset(args):
                 status.status = args.status
                 if not args.dry_run:
                     print unicode(syn.store(status)).encode('utf-8')
-    for submission in args.submission:
-        status = syn.getSubmissionStatus(submission)
-        status.status = args.status
-        if not args.dry_run:
-            print unicode(syn.store(status)).encode('utf-8')
+    elif args.rescore:
+        for queue_id in args.rescore:
+            for submission, status in syn.getSubmissionBundles(queue_id, status="SCORED"):
+                status.status = args.status
+                if args.dry_run:
+                    print "dry-run: ", submission.id, status.status
+                else:
+                    print "reset: ", submission.id, status.status
+                    #print unicode(syn.store(status)).encode('utf-8')
+    else:
+        for submission in args.submission:
+            status = syn.getSubmissionStatus(submission)
+            status.status = args.status
+            if not args.dry_run:
+                print unicode(syn.store(status)).encode('utf-8')
 
 
 def command_validate(args):
@@ -550,6 +560,7 @@ def main():
     parser_reset.add_argument("submission", metavar="SUBMISSION-ID", type=int, nargs='*', help="One or more submission IDs, or omit if using --rescore-all")
     parser_reset.add_argument("-s", "--status", default='RECEIVED')
     parser_reset.add_argument("--rescore-all", action="store_true", default=False)
+    parser_reset.add_argument("--rescore", metavar="EVALUATION-ID", type=int, nargs='*', help="One or more evaluation IDs to rescore")
     parser_reset.set_defaults(func=command_reset)
 
     parser_validate = subparsers.add_parser('validate', help="Validate all RECEIVED submissions to an evaluation")
