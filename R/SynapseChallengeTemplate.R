@@ -139,7 +139,7 @@ setUp<-function() {
 submitToChallenge<-function(evaluation, participantFile) {
   CONTENT_TYPE <- "text/plain;charset=UTF-8"
   for (i in 1:NUM_OF_SUBMISSIONS_TO_CREATE) {
-    submit(evaluation=evaluation, entity=participantFile, teamName="Team Awesome", silent=TRUE)
+    submit(evaluation=evaluation, entity=participantFile, silent=TRUE)
   }
   message(sprintf("Submitted %s submissions to Evaluation queue %s", NUM_OF_SUBMISSIONS_TO_CREATE, evaluation$name))
 }
